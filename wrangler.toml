@@ -1,5 +1,8 @@
 name = "thverhaus"
+main = "src/index.js"
 compatibility_date = "2026-11-01"
+workers_dev = false
+preview_urls = false
 routes = [
   { pattern = "thverhaus.com", custom_domain = true },
   { pattern = "www.thverhaus.com", custom_domain = true }
@@ -7,3 +10,12 @@ routes = [
 
 [assets]
 directory = "./public"
+run_worker_first = ["/api/*"]
+
+[[durable_objects.bindings]]
+name = "PAIRING"
+class_name = "PairingSlot"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PairingSlot"]

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="is">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Tengja playlista</title>
+  <link rel="stylesheet" href="../style.css">
+  <link rel="stylesheet" href="tengja.css">
+</head>
+<body>
+  <main>
+    <h1>Tengja</h1>
+    <p class="grammar">Sendu playlista í Mulehead á sjónvarpinu.</p>
+
+    <form id="form" autocomplete="off" novalidate>
+      <label>Kóðinn á sjónvarpinu
+        <input id="code" name="code" class="code" required maxlength="9" placeholder="ABCD-EFGH" autocapitalize="characters" spellcheck="false">
+      </label>
+
+      <fieldset>
+        <legend>Tegund</legend>
+        <label class="choice"><input type="radio" name="type" value="m3u" checked> M3U-slóð</label>
+        <label class="choice"><input type="radio" name="type" value="xtream"> Xtream</label>
+      </fieldset>
+
+      <div id="fields-m3u">
+        <label>M3U-slóð
+          <input name="url" type="url" inputmode="url" spellcheck="false">
+        </label>
+      </div>
+
+      <div id="fields-xtream" hidden>
+        <label>Netþjónn
+          <input name="server" type="url" inputmode="url" spellcheck="false" placeholder="http://…">
+        </label>
+        <label>Notandanafn
+          <input name="username" spellcheck="false" autocapitalize="off">
+        </label>
+        <label>Lykilorð
+          <input name="password" type="password" autocomplete="new-password">
+        </label>
+      </div>
+
+      <label>Nafn (má sleppa)
+        <input name="name" maxlength="100">
+      </label>
+
+      <label>EPG-slóð (má sleppa)
+        <input name="epgUrl" type="url" inputmode="url" spellcheck="false">
+      </label>
+
+      <button class="button" type="submit">Senda</button>
+      <p id="status" role="status" aria-live="polite"></p>
+    </form>
+
+    <p class="note">Upplýsingarnar eru geymdar í mesta lagi 10 mínútur og þeim er eytt um leið og sjónvarpið hefur sótt þær.</p>
+  </main>
+  <script src="tengja.js"></script>
+</body>
+</html>

@@ -1,3 +1,9 @@
 /mulehead.apk
   Content-Type: application/vnd.android.package-archive
   Content-Disposition: attachment; filename="Mulehead.apk"
+/tengja/*
+  Cache-Control: no-store
+  Referrer-Policy: no-referrer
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'

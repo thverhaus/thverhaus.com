@@ -1,0 +1,40 @@
+form { display: grid; gap: 1.25rem; }
+
+label { display: block; font-size: 1rem; }
+
+input:not([type="radio"]) {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--muted);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
+
+input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.code {
+  font-size: 1.5rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.code::placeholder { color: var(--muted); opacity: 0.6; }
+
+fieldset { margin: 0; padding: 0; border: 0; }
+legend { padding: 0; font-size: 1rem; }
+.choice { display: inline-block; margin: 0.25rem 1.5rem 0 0; }
+
+#fields-m3u, #fields-xtream { display: grid; gap: 1.25rem; }
+#fields-m3u[hidden], #fields-xtream[hidden] { display: none; }
+
+button.button { justify-self: start; border: 0; font-family: inherit; cursor: pointer; }
+button.button:disabled { opacity: 0.6; cursor: default; }
+
+#status { margin: 0; min-height: 1.6em; }
+#status.error { color: var(--accent); }
+
+.note { margin-top: 2rem; font-size: 0.9375rem; color: var(--muted); }
