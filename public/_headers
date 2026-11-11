@@ -7,3 +7,6 @@
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'
+/updates.json
+  Cache-Control: no-store
+  Content-Type: application/json; charset=utf-8
