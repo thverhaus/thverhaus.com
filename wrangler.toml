@@ -1,0 +1,9 @@
+name = "thverhaus"
+compatibility_date = "2026-11-01"
+routes = [
+  { pattern = "thverhaus.com", custom_domain = true },
+  { pattern = "www.thverhaus.com", custom_domain = true }
+]
+
+[assets]
+directory = "./public"
