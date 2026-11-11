@@ -1,13 +1,13 @@
 {
   "android": {
-    "versionCode": 9,
-    "versionName": "0.9",
+    "versionCode": 10,
+    "versionName": "0.10",
     "url": "https://thverhaus.com/mulehead.apk",
-    "sha256": "f24397ea8fa5ea588db13567461de860d588dfa449b4b8ae350be07ca308e599"
+    "sha256": "374fc595167e93ef86781e222414d6de3a1bea40f4b943e2ed65534995cfd93d"
   },
   "mac": {
-    "version": "1.5.7",
-    "url": "https://github.com/thverhaus/thverhaus.com/releases/download/mulehead-1.5.7/Mulehead-1.5.7-arm64.zip",
-    "sha256": "b077651f60d1f0acf19a311931d1c0d3c901d2ddd82a80bc7e7fa32195456c3f"
+    "version": "1.5.8",
+    "url": "https://github.com/thverhaus/thverhaus.com/releases/download/mulehead-1.5.8/Mulehead-1.5.8-arm64.zip",
+    "sha256": "841337a3a73234b075f1f3bbf00e4308a1f676d96f72327797b008e5e00dcd31"
   }
 }
