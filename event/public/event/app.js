@@ -380,7 +380,7 @@ async function initMap() {
   if (!style || !window.maplibregl) { $('map').innerHTML = `<div class="empty">${L('Kortið náði ekki að hlaðast.', 'The map could not load.')}</div>`; return; }
   map = new maplibregl.Map({
     container: 'map', style, bounds: ICELAND, fitBoundsOptions: { padding: 20 },
-    maxBounds: [[-32, 61.5], [-6, 68.2]], dragRotate: false, pitchWithRotate: false, attributionControl: { compact: true },
+    maxBounds: [[-45, 55], [8, 73]], dragRotate: false, pitchWithRotate: false, attributionControl: { compact: true },
   });
   map.touchZoomRotate.disableRotation();
   map.once('load', () => fitIceland());
