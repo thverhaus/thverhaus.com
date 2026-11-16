@@ -154,7 +154,10 @@ details.paste textarea{margin:10px 0}
 .ev2 .ln{font-size:16.5px;color:#ead8d1}
 .ev2 .tags{margin-top:3px}
 .ev2 img{width:64px;height:64px;object-fit:cover;border-radius:10px}
-.ev2.cx .ti{text-decoration:line-through;opacity:.75}
+.ev2.cx{border-left:4px solid #d94b4b}
+.ev2.cx .when,.ev2.cx .when.today{background:rgba(217,75,75,.22);color:#f6caca}
+.ev2.cx .ti,.ev2.cx .ln{color:#b39892;text-decoration:line-through}
+.ev2.cx .cxl{background:#d94b4b;color:#fff;font-size:14px;padding:1px 8px;letter-spacing:.3px}
 .listhead .info{color:#ead8d1;font-size:16px}
 
 /* ---- Sími ---- */
