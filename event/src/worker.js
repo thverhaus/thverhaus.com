@@ -598,6 +598,7 @@ async function apiAnswerRequest(req, env, user, id) {
 
 /* ---------------- Plaköt (R2) ---------------- */
 async function apiUploadPoster(req, env, user) {
+  if (!env.POSTERS) return err("Plakatageymslan er ekki tilbúin enn.", 503);
   const type = (req.headers.get("Content-Type") || "").split(";")[0];
   const ext = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" }[type];
   if (!ext) return err("Plakatið þarf að vera mynd (jpg, png eða webp).");
@@ -610,6 +611,7 @@ async function apiUploadPoster(req, env, user) {
   return json({ ok: true, key });
 }
 async function apiGetPoster(req, env, key) {
+  if (!env.POSTERS) return err("Fannst ekki.", 404);
   if (!/^[a-z0-9-]{10,80}\.(jpg|png|webp)$/.test(key)) return err("Fannst ekki.", 404);
   const obj = await env.POSTERS.get(key);
   if (!obj) return err("Fannst ekki.", 404);

@@ -18,7 +18,7 @@
   },
   // Búið til sjálfkrafa við fyrstu uppsetningu (wrangler auto-provisioning).
   "d1_databases": [{ "binding": "DB", "database_name": "vidburdir-db" }],
-  "r2_buckets": [{ "binding": "POSTERS", "bucket_name": "vidburdir-plakot" }],
+  "r2_buckets": [{ "binding": "POSTERS" }],
   "vars": {
     "BASE_PATH": "/event",
     "BASE_URL": "https://thverhaus.com",
