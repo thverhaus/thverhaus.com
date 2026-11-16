@@ -26,7 +26,7 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS ev_place ON events(place_id)`,
   `CREATE INDEX IF NOT EXISTS ev_page ON events(page_id)`,
   // Upphafsgögn: Hafið á Höfn og bönd Júlíusar. Eigandi verður stjórnandi við fyrstu innskráningu.
-  `INSERT OR IGNORE INTO places (id,name,town,muni,region,lat,lon,created) VALUES ('hafid','Hafið','Höfn','hornafjordur','austurland',64.25383,-15.20509,0)`,
+  `INSERT OR IGNORE INTO places (id,name,town,muni,region,lat,lon,created) VALUES ('hafid','Hafið','Höfn','hornafjordur','austurland',64.25088,-15.20205,0)`,
   `INSERT OR IGNORE INTO pages (id,kind,name,code,place_id,created) VALUES ('p-hafid','venue','Hafið','HAFID7','hafid',0)`,
   `INSERT OR IGNORE INTO pages (id,kind,name,code,created) VALUES ('p-kusk','band','Kusk','KUSK88',0)`,
   `INSERT OR IGNORE INTO pages (id,kind,name,code,created) VALUES ('p-hrud','band','Hrúðurkarlarnir','HRUD31',0)`,
