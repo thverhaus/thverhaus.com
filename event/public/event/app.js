@@ -185,6 +185,7 @@ function aggGeo(kind) {
   }
   return { type: 'FeatureCollection', features: feats };
 }
+function bubbleGeo() { const g = aggGeo(); g.features = g.features.filter((f) => f.properties.n > 0); return g; }
 // Staðirnir sem bóla nær yfir (svo smellur sýni nákvæmlega viðburðina í henni).
 function bubblePlaces(kind, key) {
   if (key.startsWith('p:')) return new Set([key.slice(2)]);
@@ -433,8 +434,83 @@ function updateMapData() {
   if (!mapReady) return;
   map.getSource('pl').setData(pointsGeo(true));
   map.getSource('pl0').setData(pointsGeo(false));
-  map.getSource('hub').setData(aggGeo('hub'));
-  map.getSource('town').setData(aggGeo('town'));
+  NMDATA = aggGeo(); map.getSource('nm').setData(NMDATA); relayout();
+}
+
+/* Nöfn sem verða að sjást: velja stað við bæinn (8 áttir) sem rekst ekki á bólur, önnur nöfn eða brún kortsins. */
+let NMDATA = null, MERGED = [];
+// Stærð bólu eftir fjölda (stærri tala = stærri bóla, talan passar alltaf). Minni þegar kortið er lítið (sími).
+function bubbleR(n, town, z) {
+  const r = n >= 1000 ? 19 : n >= 100 ? 16 : n >= 10 ? 13 : 10;
+  return town ? r + 2 : r * Math.min(1, Math.max(0.8, 0.8 + (z - 4.5) * 0.2 / 1.5));
+}
+const NAME_SIZE = { 1: 17, 2: 15 };
+/* Bólur: hver bær/staður sína bólu. Bólur renna saman EINGÖNGU ef þær myndu lenda hver ofan á annarri
+   á skjánum núna; þá stendur stærsta bólan kyrr á sínum bæ og fær fjöldann, án bæjarnafns.
+   Reiknað upp á nýtt eftir hvert zoom, svo þær skiptast þegar zoomað er inn. */
+function relayout() {
+  if (!mapReady || !map.getSource('bub')) return;
+  const z = map.getZoom(), town = z >= Z_HUB, out = [];
+  MERGED = [];
+  if (z < Z_TOWN) {
+    const items = bubbleGeo().features.map((f) => ({ f, p: map.project(f.geometry.coordinates), n: f.properties.n }))
+      .sort((a, b) => b.n - a.n);
+    const used = new Set();
+    for (const it of items) {
+      if (used.has(it)) continue;
+      used.add(it);
+      const g = [it];
+      let n = it.n, grew = true;
+      while (grew) {
+        grew = false;
+        const R = bubbleR(n, town, z);
+        for (const o of items) {
+          if (used.has(o)) continue;
+          if (Math.hypot(o.p.x - it.p.x, o.p.y - it.p.y) < R + bubbleR(o.n, town, z) + 2) { used.add(o); g.push(o); n += o.n; grew = true; }
+        }
+      }
+      const mi = MERGED.push(g.map((x) => x.f.properties)) - 1;
+      out.push({ type: 'Feature', geometry: it.f.geometry, properties: { mi, n, key: it.f.properties.key, r: bubbleR(n, town, z), ts: town ? 13 : z < 5.2 ? 11 : 12, x: it.p.x, y: it.p.y } });
+    }
+  }
+  map.getSource('bub').setData({ type: 'FeatureCollection', features: out });
+  placeNames(out.map((f) => ({ x: f.properties.x, y: f.properties.y, r: f.properties.r + 3 })));
+}
+/* Nöfn sem verða að sjást: velja stað við bæinn (8 áttir) sem rekst ekki á bólur, önnur nöfn eða brún kortsins. */
+function placeNames(circles) {
+  const src = map && map.getSource('fixn');
+  if (!src || !NMDATA) return;
+  const z = map.getZoom();
+  if (z >= Z_TOWN) { src.setData({ type: 'FeatureCollection', features: [] }); return; }
+  const town = z >= Z_HUB, cv = map.getCanvas(), W = cv.clientWidth, H = cv.clientHeight;
+  const want = NMDATA.features.filter((f) => (town ? f.properties.keep : f.properties.major))
+    .sort((a, b) => (b.properties.major - a.properties.major) || ((b.properties.n > 0) - (a.properties.n > 0)) || (a.properties.tier - b.properties.tier) || (b.properties.n - a.properties.n));
+  const rects = [], out = [];
+  const ov = (a, b) => Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1)) * Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
+  // anchor -> stefna textans frá punktinum
+  const DIRS = [['left', 1, 0], ['right', -1, 0], ['top', 0, 1], ['bottom', 0, -1], ['bottom-left', 0.75, -0.75], ['top-left', 0.75, 0.75], ['bottom-right', -0.75, -0.75], ['top-right', -0.75, 0.75]];
+  for (const f of want) {
+    const pr = f.properties, p = map.project(f.geometry.coordinates);
+    if (p.x < -60 || p.y < -30 || p.x > W + 60 || p.y > H + 30) continue;
+    const size = NAME_SIZE[pr.tier] || 13, w = pr.name.length * size * 0.56 + 4, h = size * 1.2;
+    const cov = circles.find((c) => Math.hypot(c.x - p.x, c.y - p.y) <= c.r);
+    const o = cov || p, R = cov ? cov.r + 1 : 4;
+    let best = null;
+    DIRS.forEach(([an, dx, dy], i) => {
+      const ax = o.x + dx * R, ay = o.y + dy * R;
+      const x1 = an.includes('left') ? ax : an.includes('right') ? ax - w : ax - w / 2;
+      const y1 = an.startsWith('top') ? ay : an.startsWith('bottom') ? ay - h : ay - h / 2;
+      const r = { x1, y1, x2: x1 + w, y2: y1 + h };
+      let sc = i * 2;
+      for (const c of circles) sc += 4 * ov(r, { x1: c.x - c.r, y1: c.y - c.r, x2: c.x + c.r, y2: c.y + c.r });
+      for (const q of rects) sc += 4 * ov(r, q);
+      sc += 6 * (w * h - ov(r, { x1: 2, y1: 2, x2: W - 2, y2: H - 2 }));
+      if (!best || sc < best.sc) best = { sc, r, an, off: [(ax - p.x) / size, (ay - p.y) / size] };
+    });
+    rects.push(best.r);
+    out.push({ type: 'Feature', geometry: f.geometry, properties: { name: pr.name, n: pr.n, size, anchor: best.an, off: best.off } });
+  }
+  src.setData({ type: 'FeatureCollection', features: out });
 }
 
 /* Varakort: einfalt Íslandskort (SVG) fyrir gömul tæki eða ef kortið hleðst ekki.
@@ -526,41 +602,58 @@ async function initMap() {
       layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Bold'], 'text-size': 13, 'text-variable-anchor': ['left', 'right', 'top', 'bottom'], 'text-radial-offset': 1.1, 'text-optional': true },
       paint: { 'text-color': '#f2e2dc', 'text-halo-color': '#1d1214', 'text-halo-width': 1.5 } });
 
-    // Bæjabólur: miðstöðvar langt frá, allir bæir nær.
-    const bubble = (id, src, minz, maxz, keepF, restF, rad) => {
-      map.addSource(src, { type: 'geojson', data: aggGeo(src) });
-      map.addLayer({ id: id + '-c', type: 'circle', source: src, minzoom: minz, maxzoom: maxz, filter: ['>', ['get', 'n'], 0],
-        paint: { 'circle-color': A, 'circle-opacity': 0.95, 'circle-stroke-width': 3, 'circle-stroke-color': 'rgba(222,138,90,.35)', 'circle-radius': rad } });
-      const size = ['match', ['get', 'tier'], 1, 17, 2, 15, 13];
-      const color = ['case', ['>', ['get', 'n'], 0], '#f6e9e2', '#a88f88'];
-      // Litlir bæir án viðburða mega víkja þegar þröngt er…
-      if (restF) map.addLayer({ id: id + '-l2', type: 'symbol', source: src, minzoom: minz, maxzoom: maxz, filter: restF,
-        layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': size, 'text-variable-anchor': ['left', 'right', 'top', 'bottom'], 'text-radial-offset': 0.3 },
-        paint: { 'text-color': color, 'text-halo-color': '#120a0b', 'text-halo-width': 1.6 } });
-      // …en bæir með viðburði og stærri bæir víkja aldrei.
-      map.addLayer({ id: id + '-l', type: 'symbol', source: src, minzoom: minz, maxzoom: maxz, filter: keepF,
-        layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Bold'], 'text-size': size, 'text-anchor': ['get', 'anchor'], 'text-offset': ['get', 'off'],
-          'text-allow-overlap': true, 'symbol-sort-key': ['-', 0, ['get', 'n']] },
-        paint: { 'text-color': color, 'text-halo-color': '#120a0b', 'text-halo-width': 1.8 } });
-      map.addLayer({ id: id + '-n', type: 'symbol', source: src, minzoom: minz, maxzoom: maxz, filter: ['>', ['get', 'n'], 0],
-        layout: { 'text-field': ['to-string', ['get', 'n']], 'text-font': ['Noto Sans Bold'], 'text-size': 14, 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': '#2a1208' } });
-    };
-    // Zoomað út: hver bær sína bólu (minni) en BARA 8 bæjanöfn. Önnur nöfn sjást við mús/snertingu og þegar zoomað er inn.
-    bubble('hub', 'hub', 0, Z_HUB, ['==', ['get', 'major'], 1], null, ['step', ['get', 'n'], 8, 5, 10, 20, 13, 50, 16]);
-    // Nær: bær með viðburði og bæir yfir 1.000 víkja aldrei.
-    bubble('town', 'town', Z_HUB, Z_TOWN, ['==', ['get', 'keep'], 1], ['==', ['get', 'keep'], 0], ['step', ['get', 'n'], 12, 5, 15, 20, 19, 50, 24]);
+    // Bæjabólur. Bólur (bara með viðburði) renna saman EINGÖNGU þegar þær lenda hver ofan á annarri;
+    // sameinuð bóla fær ekkert bæjarnafn, bara fjölda, og skiptist þegar zoomað er inn.
+    // Nöfn koma úr sér lagi og standa alltaf við bæinn sjálfan.
+    map.addSource('bub', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    NMDATA = aggGeo();
+    map.addSource('nm', { type: 'geojson', data: NMDATA });
+    // Nöfn fyrst (undir bólunum). Tölurnar í bólunum eru settar fyrst og nöfnin finna sér stað þar sem
+    // engin bóla er: hægra megin, vinstra megin, fyrir ofan, neðan eða á ská.
+    const size = ['match', ['get', 'tier'], 1, 17, 2, 15, 13];
+    const color = ['case', ['>', ['get', 'n'], 0], '#f6e9e2', '#a88f88'];
+    const ANCH = ['left', 'right', 'top', 'bottom', 'bottom-left', 'top-left', 'bottom-right', 'top-right'];
+    const nameLayer = (id, minz, maxz, filter, bold) => map.addLayer({ id, type: 'symbol', source: 'nm', minzoom: minz, maxzoom: maxz, filter,
+      layout: { 'text-field': ['get', 'name'], 'text-font': [bold ? 'Noto Sans Bold' : 'Noto Sans Regular'], 'text-size': size,
+        'text-variable-anchor': ANCH, 'text-radial-offset': ['case', ['>', ['get', 'n'], 0], 1.05, 0.4], 'text-padding': 1, 'symbol-sort-key': ['-', 0, ['get', 'n']] },
+      paint: { 'text-color': color, 'text-halo-color': '#120a0b', 'text-halo-width': 1.8 } });
+    // Zoomað út: bara 8 bæjanöfn.
+    // Aðrir bæir (án viðburða, undir 1.000) bara þegar pláss er.
+    nameLayer('town-l2', Z_HUB, Z_TOWN, ['==', ['get', 'keep'], 0], false);
+    // Nöfn sem verða ALLTAF að sjást (8 bæir langt úti; nær: bæir með viðburð og yfir 1.000).
+    // Staðsetning reiknuð í placeNames() svo þau lendi hvorki á bólu, hvert á öðru né út af kortinu.
+    map.addSource('fixn', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'fix-l', type: 'symbol', source: 'fixn', maxzoom: Z_TOWN,
+      layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Bold'], 'text-size': ['get', 'size'], 'text-anchor': ['get', 'anchor'], 'text-offset': ['get', 'off'], 'text-allow-overlap': true },
+      paint: { 'text-color': color, 'text-halo-color': '#120a0b', 'text-halo-width': 1.8 } });
+    map.addLayer({ id: 'bub-c', type: 'circle', source: 'bub', maxzoom: Z_TOWN,
+      paint: { 'circle-color': A, 'circle-opacity': 0.95, 'circle-stroke-width': 2.5, 'circle-stroke-color': '#1d1214', 'circle-radius': ['get', 'r'] } });
+    // Talan sýnist alltaf og tekur pláss frá öðrum nöfnum.
+    map.addLayer({ id: 'bub-n', type: 'symbol', source: 'bub', maxzoom: Z_TOWN,
+      layout: { 'text-field': ['to-string', ['get', 'n']], 'text-font': ['Noto Sans Bold'], 'text-size': ['get', 'ts'], 'text-allow-overlap': true, 'text-padding': 6 }, paint: { 'text-color': '#2a1208' } });
 
     if (!wired) { wired = true;
     const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 8 });
     const btip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14, className: 'btip' });
-    const bubbleTip = (f) => btip.setLngLat(f.geometry.coordinates).setHTML(`<b>${esc(f.properties.name)}</b> · ${f.properties.n} ${L('viðburðir', 'events')}`).addTo(map);
-    ['hub-c', 'town-c'].forEach((l) => {
+    // Hvaða bæir eru í bólu (sameinuð bóla = margir).
+    const bubbleInfo = (f) => {
+      return Promise.resolve((MERGED[f.properties.mi] || []).slice().sort((x, y) => y.n - x.n));
+    };
+    const namesStr = (ps) => ps.length <= 4 ? ps.map((x) => x.name).join(', ') : ps.slice(0, 3).map((x) => x.name).join(', ') + ' ' + L('og', 'and') + ' ' + (ps.length - 3) + ' ' + L('í viðbót', 'more');
+    let tipFor = null;
+    const bubbleTip = (f) => {
+      const key = f.layer.id + ':' + f.properties.mi;
+      if (tipFor === key && btip.isOpen()) return;
+      tipFor = key;
+      bubbleInfo(f).then((ps) => { if (tipFor !== key) return; btip.setLngLat(f.geometry.coordinates).setHTML(`<b>${esc(namesStr(ps))}</b> · ${f.properties.n} ${L('viðburðir', 'events')}`).addTo(map); });
+    };
+    ['bub-c'].forEach((l) => {
       map.on('mousemove', l, (ev) => { tip.remove(); bubbleTip(ev.features[0]); });
-      map.on('mouseleave', l, () => btip.remove());
+      map.on('mouseleave', l, () => { tipFor = null; btip.remove(); });
     });
     map.on('movestart', (ev) => { if (ev.originalEvent) btip.remove(); });
     map.on('mousemove', 'reg-fill', (ev) => {
-      if (map.queryRenderedFeatures(ev.point, { layers: ['hub-c', 'town-c'].filter((l) => map.getLayer(l)) }).length) { tip.remove(); return; }
+      if (map.queryRenderedFeatures(ev.point, { layers: ['bub-c'] }).length) { tip.remove(); return; }
       const f = ev.features[0];
       if (hoverId !== null) map.setFeatureState({ source: 'areas', id: hoverId }, { hover: false });
       hoverId = f.id; map.setFeatureState({ source: 'areas', id: hoverId }, { hover: true });
@@ -569,14 +662,17 @@ async function initMap() {
     });
     map.on('mouseleave', 'reg-fill', () => { if (hoverId !== null) map.setFeatureState({ source: 'areas', id: hoverId }, { hover: false }); hoverId = null; map.getCanvas().style.cursor = ''; tip.remove(); });
     map.on('click', (ev) => {
-      const hits = map.queryRenderedFeatures(ev.point, { layers: ['hub-c', 'town-c', 'cl', 'pt', 'pt0', 'reg-fill'].filter((l) => map.getLayer(l)) });
+      const hits = map.queryRenderedFeatures(ev.point, { layers: ['bub-c', 'cl', 'pt', 'pt0', 'reg-fill'].filter((l) => map.getLayer(l)) });
       if (!hits.length) return;
       const f = hits[0];
-      if (f.layer.id === 'hub-c' || f.layer.id === 'town-c') {
-        tip.remove(); bubbleTip(f);
-        const kind = f.layer.id === 'hub-c' ? 'hub' : 'town';
-        const ids = bubblePlaces(kind, f.properties.key);
-        F.placeId = null; F.inView = false; F.sel = { label: f.properties.name + (NEAR.has(f.properties.name) && f.properties.key.startsWith('t:') ? ' ' + L('og nágrenni', 'and surroundings') : ''), ids };
+      if (f.layer.id === 'bub-c') {
+        tip.remove(); tipFor = null; bubbleTip(f);
+        bubbleInfo(f).then((ps) => {
+        const ids = new Set();
+        ps.forEach((x) => bubblePlaces(null, x.key).forEach((id) => ids.add(id)));
+        const one = ps.length === 1 ? ps[0] : null;
+        F.placeId = null; F.inView = false;
+        F.sel = { label: one ? one.name + (NEAR.has(one.name) && one.key.startsWith('t:') ? ' ' + L('og nágrenni', 'and surroundings') : '') : namesStr(ps), ids };
         const withEv = new Set(eventsInDates().filter((e) => ids.has(e.place_id)).map((e) => e.place_id));
         const pts = [...withEv].map((id) => PLACE[id]).filter(Boolean);
         if (pts.length) {
@@ -585,6 +681,7 @@ async function initMap() {
         }
         renderAll();
         if (innerWidth < 900) $('list').scrollIntoView({ behavior: 'smooth' });
+        });
       } else if (f.layer.id === 'cl') {
         map.getSource('pl').getClusterExpansionZoom(f.properties.cluster_id).then((z) => { F.inView = true; map.easeTo({ center: f.geometry.coordinates, zoom: Math.min(z + 0.3, 17) }); });
       } else if (f.layer.id === 'pt' || f.layer.id === 'pt0') {
@@ -594,10 +691,10 @@ async function initMap() {
         tip.remove(); fitArea('region', f.properties.id);
       }
     });
-    ['hub-c', 'town-c', 'cl', 'pt', 'pt0'].forEach((l) => { map.on('mouseenter', l, () => (map.getCanvas().style.cursor = 'pointer')); map.on('mouseleave', l, () => (map.getCanvas().style.cursor = '')); });
+    ['bub-c', 'cl', 'pt', 'pt0'].forEach((l) => { map.on('mouseenter', l, () => (map.getCanvas().style.cursor = 'pointer')); map.on('mouseleave', l, () => (map.getCanvas().style.cursor = '')); });
     map.on('dragstart', () => { F.inView = true; });
     map.on('zoomstart', (ev) => { if (ev.originalEvent) F.inView = true; });
-    map.on('moveend', () => { if (F.inView) renderList(); });
+    map.on('moveend', () => { relayout(); if (F.inView) renderList(); });
     }
     mapReady = true;
     updateMapData();
