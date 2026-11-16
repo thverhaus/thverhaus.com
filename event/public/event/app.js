@@ -186,11 +186,68 @@ function renderAll() { renderDateChips(); renderRegions(); renderList(); updateM
 const ICELAND = [[-24.6, 63.25], [-13.4, 66.6]];
 let map = null, mapReady = false, hoverId = null;
 
+const STYLES = { dark: 'https://tiles.openfreemap.org/styles/dark', light: 'https://tiles.openfreemap.org/styles/liberty' };
+let mapTheme = store.get('mapTheme', 'dark');
 async function pickStyle() {
-  for (const s of ['https://tiles.openfreemap.org/styles/dark', 'https://tiles.openfreemap.org/styles/positron', 'https://tiles.openfreemap.org/styles/liberty']) {
+  for (const s of [STYLES[mapTheme], STYLES.dark, STYLES.light]) {
     try { const r = await fetch(s); if (r.ok) return s; } catch {}
   }
   return null;
+}
+// Stækka texta (líka þegar stærðin fer eftir aðdrætti).
+function scaleSize(v, k) {
+  if (typeof v === 'number') return +(v * k).toFixed(2);
+  if (Array.isArray(v) && (v[0] === 'interpolate' || v[0] === 'interpolate-hcl') && Array.isArray(v[2]) && v[2][0] === 'zoom') {
+    const out = v.slice(0, 3);
+    for (let i = 3; i < v.length; i += 2) out.push(v[i], typeof v[i + 1] === 'number' ? +(v[i + 1] * k).toFixed(2) : v[i + 1]);
+    return out;
+  }
+  if (Array.isArray(v) && v[0] === 'step' && Array.isArray(v[1]) && v[1][0] === 'zoom') {
+    return v.map((x, i) => (i >= 2 && i % 2 === 0 && typeof x === 'number' ? +(x * k).toFixed(2) : x));
+  }
+  return null;
+}
+// Dökka kortið gert læsilegt: bjartari götur og hús, stærri og skýrari nöfn.
+function tuneMap() {
+  const dark = mapTheme === 'dark';
+  for (const l of map.getStyle().layers) {
+    const sl = l['source-layer'] || '';
+    try {
+      if (l.type === 'symbol' && map.getLayoutProperty(l.id, 'text-field') !== undefined) {
+        const sz = scaleSize(map.getLayoutProperty(l.id, 'text-size') ?? 16, sl === 'transportation_name' ? 1.35 : 1.2);
+        if (sz !== null) map.setLayoutProperty(l.id, 'text-size', sz);
+        if (dark) {
+          map.setPaintProperty(l.id, 'text-color', sl === 'transportation_name' ? '#f6e9e2' : '#f2e2dc');
+          map.setPaintProperty(l.id, 'text-halo-color', '#120a0b');
+          map.setPaintProperty(l.id, 'text-halo-width', 1.6);
+        }
+      }
+      if (!dark) continue;
+      if (l.type === 'line' && sl === 'transportation') {
+        const major = /motorway|trunk|primary|secondary/.test(l.id);
+        map.setPaintProperty(l.id, 'line-color', major ? '#c9a48c' : '#9a857e');
+        map.setPaintProperty(l.id, 'line-opacity', 1);
+      }
+      if (l.type === 'fill' && sl === 'building') { map.setPaintProperty(l.id, 'fill-color', '#5a4544'); map.setPaintProperty(l.id, 'fill-opacity', 1); try { map.setPaintProperty(l.id, 'fill-outline-color', '#8c706c'); } catch {} }
+      if (l.type === 'fill-extrusion' && sl === 'building') map.setPaintProperty(l.id, 'fill-extrusion-color', '#5a4544');
+      if (l.type === 'fill' && sl === 'water') map.setPaintProperty(l.id, 'fill-color', '#16222b');
+      if (l.type === 'background') map.setPaintProperty(l.id, 'background-color', '#2a2021');
+      if (l.type === 'fill' && (sl === 'landcover' || sl === 'landuse' || sl === 'park')) map.setPaintProperty(l.id, 'fill-opacity', 0.35);
+    } catch {}
+  }
+}
+class ThemeControl {
+  onAdd() {
+    this.el = document.createElement('div');
+    this.el.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    this.el.innerHTML = `<button type="button" style="width:auto;padding:0 10px;font-size:14px;font-weight:700;color:#222"></button>`;
+    const b = this.el.querySelector('button');
+    const label = () => { b.textContent = mapTheme === 'dark' ? '☀️ ' + L('Ljóst kort', 'Light map') : '🌙 ' + L('Dökkt kort', 'Dark map'); };
+    label();
+    b.onclick = () => { mapTheme = mapTheme === 'dark' ? 'light' : 'dark'; store.set('mapTheme', mapTheme); label(); mapReady = false; hoverId = null; map.setStyle(STYLES[mapTheme]); };
+    return this.el;
+  }
+  onRemove() { this.el.remove(); }
 }
 function bboxOf(geom) {
   let a = 180, b = 90, c = -180, d = -90;
@@ -230,7 +287,10 @@ async function initMap() {
   });
   map.touchZoomRotate.disableRotation();
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-  map.on('load', () => {
+  map.addControl(new ThemeControl(), 'top-left');
+  let wired = false;
+  map.on('style.load', () => {
+    tuneMap();
     const A = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#de8a5a';
     map.addSource('areas', { type: 'geojson', data: AREAS, generateId: true });
     map.addLayer({ id: 'reg-fill', type: 'fill', source: 'areas', maxzoom: 7.5, filter: ['==', ['get', 'kind'], 'region'],
@@ -256,6 +316,7 @@ async function initMap() {
       layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Bold'], 'text-size': 13, 'text-variable-anchor': ['left', 'right', 'top', 'bottom'], 'text-radial-offset': 1.1, 'text-optional': true },
       paint: { 'text-color': '#f2e2dc', 'text-halo-color': '#1d1214', 'text-halo-width': 1.5 } });
 
+    if (!wired) { wired = true;
     const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 8 });
     map.on('mousemove', 'reg-fill', (ev) => {
       const f = ev.features[0];
@@ -282,6 +343,7 @@ async function initMap() {
     map.on('dragstart', () => { F.inView = true; });
     map.on('zoomstart', (ev) => { if (ev.originalEvent) F.inView = true; });
     map.on('moveend', () => { if (F.inView) renderList(); });
+    }
     mapReady = true;
     updateMapData();
   });

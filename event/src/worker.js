@@ -1,6 +1,6 @@
 import { createDemo, deleteDemo } from "./demo.js";
 import OSM_PLACES from "./osm-places.json";
-const OSM_VERSION = "261114c";
+const OSM_VERSION = "261114d";
 
 // Viðburðasíðan – netþjónn (Cloudflare Worker + D1 + R2).
 // Aðskilið frá Mulehead. Öll slóð byrjar á BASE_PATH (nú /event).
