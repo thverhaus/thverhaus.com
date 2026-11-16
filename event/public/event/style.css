@@ -30,7 +30,16 @@ header{position:sticky;top:0;z-index:20;background:rgba(29,18,20,.96);backdrop-f
 .chips{display:flex;gap:8px;flex-wrap:wrap;padding:0 18px 10px}
 .chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 13px;font-size:15px;user-select:none;cursor:pointer}
 .chip.on{background:var(--accent);color:var(--onaccent);border-color:var(--accent);font-weight:700}
-main{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px;padding:18px;max-width:1500px;margin:0 auto}
+main{display:grid;grid-template-columns:210px minmax(0,1.15fr) minmax(0,1fr);gap:18px;padding:18px;max-width:1600px;margin:0 auto}
+.filters{position:sticky;top:120px;align-self:start;max-height:calc(100vh - 140px);overflow:auto}
+.filters h3{font-size:17px;margin:0 0 8px}
+.filters .grp{margin-bottom:18px}
+.filters .opt{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;background:none;border:1px solid transparent;border-radius:10px;padding:7px 10px;text-align:left;font-size:16px}
+.filters .opt:hover{background:var(--panel)}
+.filters .opt.on{background:var(--accent);color:var(--onaccent);font-weight:700}
+.filters .opt small{opacity:.75}
+.filters .clear{margin-top:4px}
+.fbtn{display:none}
 .mapwrap{position:sticky;top:120px;align-self:start}
 #map{height:calc(100vh - 220px);min-height:380px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--line);background:#160d0f}
 .regions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
@@ -102,8 +111,12 @@ details.paste textarea{margin:10px 0}
 .maplibregl-popup-content{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:12px;font-family:inherit}
 .maplibregl-popup-tip{border-top-color:var(--panel)!important;border-bottom-color:var(--panel)!important}
 .maplibregl-ctrl-attrib{font-size:11px}
+@media (max-width:1100px){main{grid-template-columns:190px minmax(0,1fr) minmax(0,1fr)}}
 @media (max-width:900px){
   main{grid-template-columns:1fr;padding:12px;gap:12px}
+  .filters{display:none;position:static;max-height:none;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
+  .filters.open{display:block}
+  .fbtn{display:inline-block}
   .mapwrap{position:static}
   #map{height:52vh;min-height:300px}
   .hrow{padding:10px 12px}

@@ -34,6 +34,8 @@ const BY_CAT = {
   restaurant: ["tonleikar", "pubquiz"],
 };
 
+const GENRES = ["rokk", "rokk", "metall", "ponk", "popp", "popp", "hiphop", "raf", "djass", "blus", "kantri", "thjodlaga", "trubador", "trubador", "klassik", "kor", "abreidur"];
+
 function rng(seed) {
   let s = seed >>> 0;
   return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
@@ -80,11 +82,11 @@ export async function createDemo(env, todayISO) {
       const changed = !cancelled && r() < 0.04 ? 1 : 0;
       const date = addDays(day);
       stmts.push(env.DB.prepare(
-        `INSERT OR REPLACE INTO events (id,place_id,page_id,title,date,time,end_time,price,ticket,door,age,age_text,tags,other_label,fam,descr,poster,status,cancelled,cancel_note,time_changed,old_time,created,updated)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        `INSERT OR REPLACE INTO events (id,place_id,page_id,title,date,time,end_time,price,ticket,door,age,age_text,tags,genres,other_label,fam,descr,poster,status,cancelled,cancel_note,time_changed,old_time,created,updated)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(`demo-e-${n++}`, pl.id, by.id, title, date, time, end, price,
         price && price >= 3000 && r() < 0.5 ? "https://tix.is/" : "", price && r() < 0.5 ? 1 : 0, age, "",
-        JSON.stringify([tag]), tag === "annad" ? OTHER_LABEL[title] || "" : "", fam ? 1 : 0,
+        JSON.stringify([tag]), JSON.stringify(tag === "tonleikar" ? (by.kind === "group" ? ["kor"] : [...new Set([pick(GENRES), ...(r() < 0.3 ? [pick(GENRES)] : [])])]) : []), tag === "annad" ? OTHER_LABEL[title] || "" : "", fam ? 1 : 0,
         "🧪 Prufuviðburður – ekki raunverulegur. Hér kæmi lýsing frá staðnum eða bandinu.", "", "approved", cancelled,
         cancelled ? "Veikindi í hljómsveitinni" : "", changed, changed ? `${date} 20:00` : "", now, now));
     }

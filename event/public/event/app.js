@@ -20,6 +20,11 @@ const TAGL = {
   is: { tonleikar: 'Tónleikar', leikhus: 'Leikhús', list: 'List', dj: 'DJ', uppistand: 'Uppistand', pubquiz: 'Pub quiz', annad: 'Annað' },
   en: { tonleikar: 'Live music', leikhus: 'Theatre', list: 'Art', dj: 'DJ', uppistand: 'Comedy', pubquiz: 'Pub quiz', annad: 'Other' },
 };
+const GENRES = ['rokk', 'metall', 'ponk', 'popp', 'hiphop', 'raf', 'djass', 'blus', 'kantri', 'thjodlaga', 'trubador', 'klassik', 'kor', 'abreidur'];
+const GENL = {
+  is: { rokk: 'Rokk', metall: 'Metall', ponk: 'Pönk', popp: 'Popp', hiphop: 'Hip hop', raf: 'Raftónlist', djass: 'Djass', blus: 'Blús', kantri: 'Kántrí', thjodlaga: 'Þjóðlagatónlist', trubador: 'Trúbador', klassik: 'Klassík', kor: 'Kór', abreidur: 'Ábreiður' },
+  en: { rokk: 'Rock', metall: 'Metal', ponk: 'Punk', popp: 'Pop', hiphop: 'Hip hop', raf: 'Electronic', djass: 'Jazz', blus: 'Blues', kantri: 'Country', thjodlaga: 'Folk', trubador: 'Singer-songwriter', klassik: 'Classical', kor: 'Choir', abreidur: 'Covers' },
+};
 const KINDS = { band: 'Hljómsveit / listamaður', group: 'Kór, félag eða leikfélag', venue: 'Staður' };
 const MN_IS = ['janúar', 'febrúar', 'mars', 'apríl', 'maí', 'júní', 'júlí', 'ágúst', 'september', 'október', 'nóvember', 'desember'];
 const DN_IS = ['sunnudagur', 'mánudagur', 'þriðjudagur', 'miðvikudagur', 'fimmtudagur', 'föstudagur', 'laugardagur'];
@@ -34,7 +39,7 @@ function fmtShort(s) { const d = parseISO(s); return lang === 'en' ? `${d.getDat
 const priceStr = (e) => e.price === null || e.price === undefined ? '' : e.price === 0 ? L('Frítt inn', 'Free') : e.price.toLocaleString('de-DE') + ' kr.';
 const ageStr = (e) => e.age_text || (e.age === 'fylgd' ? L('Börn í fylgd með fullorðnum', 'Children with adults') : e.age ? e.age + '+' : '');
 const timeStr = (e) => esc(e.time || '') + (e.end_time ? '–' + esc(e.end_time) : '');
-const tagStr = (e) => (e.tags || []).map((t) => (t === 'annad' && e.other_label ? e.other_label : TAGL[lang][t] || t));
+const tagStr = (e) => [...(e.tags || []).map((t) => (t === 'annad' && e.other_label ? e.other_label : TAGL[lang][t] || t)), ...(e.genres || []).map((g) => GENL[lang][g] || g)];
 const posterUrl = (k) => (k ? `${API}/poster/${k}` : '');
 
 /* ---------- Netsamskipti ---------- */
@@ -68,6 +73,16 @@ let PLACE = {};        // id -> staður
 let EVENTS = [];
 let ME = null;         // {user,pages,pending}
 const F = { quick: 'all', from: null, to: null, q: '', placeId: null, inView: false };
+const SF = (() => { const v = store.get('filters', {}); return { tags: new Set(v.tags || []), genres: new Set(v.genres || []), fam: !!v.fam }; })();
+const saveSF = () => store.set('filters', { tags: [...SF.tags], genres: [...SF.genres], fam: SF.fam });
+function typeMatch(e) {
+  if (SF.fam && !e.fam) return false;
+  const t = SF.tags, g = SF.genres;
+  if (!t.size && !g.size) return true;
+  const music = (e.tags || []).includes('tonleikar');
+  if (g.size && music && (e.genres || []).some((x) => g.has(x))) return true;
+  return (e.tags || []).some((x) => t.has(x) && !(x === 'tonleikar' && g.size));
+}
 
 function regionName(id) { const r = GEO && GEO.regions.find((x) => x.id === id); return r ? L(r.n, r.en) : ''; }
 function muniName(id) { return (GEO && GEO.munis[id] && GEO.munis[id].n) || ''; }
@@ -87,7 +102,33 @@ async function loadAll() {
   setPlaces(pl.places);
   await loadEvents();
 }
-function setPlaces(list) { PLACES = list; PLACE = {}; list.forEach((p) => (PLACE[p.id] = p)); }
+function setPlaces(list) { PLACES = list; PLACE = {}; list.forEach((p) => (PLACE[p.id] = p)); assignPlaces(); }
+// Bæir á kortinu: langt frá sjást bara stærri bæir („miðstöðvar“), nær allir bæir, svo staðirnir sjálfir.
+const Z_HUB = 7, Z_TOWN = 10.5;
+const HUBS = ['Reykjavík', 'Reykjanesbær', 'Akranes', 'Borgarnes', 'Stykkishólmur', 'Ísafjörður', 'Patreksfjörður', 'Hólmavík', 'Blönduós', 'Sauðárkrókur',
+  'Akureyri', 'Húsavík', 'Þórshöfn', 'Egilsstaðir', 'Höfn', 'Kirkjubæjarklaustur', 'Vík', 'Hvolsvöllur', 'Selfoss', 'Vestmannaeyjar'];
+const MAJOR = new Set(['Reykjavík', 'Akureyri', 'Ísafjörður', 'Egilsstaðir', 'Höfn', 'Vík', 'Selfoss', 'Vestmannaeyjar', 'Borgarnes', 'Sauðárkrókur', 'Húsavík']);
+let P2T = {}, P2H = {}, TOWNLL = {};
+function assignPlaces() {
+  if (!GEO) return;
+  TOWNLL = {}; GEO.towns.forEach((t) => (TOWNLL[t.n] = t.ll));
+  const hubs = HUBS.filter((h) => TOWNLL[h]);
+  const nearest = (ll, names) => { let b = null, bd = 1e9; for (const n of names) { const d = distKm(ll, TOWNLL[n]); if (d < bd) { bd = d; b = n; } } return b; };
+  const allTowns = Object.keys(TOWNLL);
+  P2T = {}; P2H = {};
+  for (const p of PLACES) {
+    const ll = [p.lon, p.lat];
+    P2T[p.id] = p.town && TOWNLL[p.town] ? p.town : nearest(ll, allTowns);
+    P2H[p.id] = p.region === 'hofudborg' ? 'Reykjavík' : nearest(ll, hubs);
+  }
+}
+function aggGeo(kind) {
+  const n = {};
+  for (const e of eventsInDates()) { const k = (kind === 'hub' ? P2H : P2T)[e.place_id]; if (k) n[k] = (n[k] || 0) + 1; }
+  const names = kind === 'hub' ? HUBS : Object.keys(TOWNLL);
+  return { type: 'FeatureCollection', features: names.filter((t) => TOWNLL[t]).map((t) => ({
+    type: 'Feature', geometry: { type: 'Point', coordinates: TOWNLL[t] }, properties: { name: t, n: n[t] || 0, major: MAJOR.has(t) ? 1 : 0 } })) };
+}
 async function loadEvents() {
   const r = await api('/events?from=' + iso(TODAY) + '&to=' + iso(addDays(TODAY, 365)));
   EVENTS = r.events;
@@ -109,10 +150,12 @@ function renderDateChips() {
   const pick = F.quick === 'pick' ? '📅 ' + fmtShort(F.from) + (F.to && F.to !== F.from ? '–' + fmtShort(F.to) : '') : '📅 ' + L('Veldu dag', 'Pick a date');
   $('dateChips').innerHTML = chips.map(([k, t]) => `<span class="chip ${F.quick === k ? 'on' : ''}" data-q="${k}">${t}</span>`).join('') +
     `<span class="chip ${F.quick === 'pick' ? 'on' : ''}" data-q="pick">${esc(pick)}</span>` +
+    `<span class="chip fbtn" data-q="filters">🎛️ ${L('Sía', 'Filter')}</span>` +
     (F.placeId && PLACE[F.placeId] ? `<span class="chip on" data-q="clearplace">📍 ${esc(PLACE[F.placeId].name)} ✕</span>` : '');
   $('dateChips').querySelectorAll('[data-q]').forEach((c) => (c.onclick = () => {
     const q = c.dataset.q;
     if (q === 'clearplace') { F.placeId = null; renderAll(); return; }
+    if (q === 'filters') { $('filters').classList.toggle('open'); return; }
     if (q === 'pick') {
       openCal(F.from || iso(TODAY), { title: L('Frá', 'From'), min: iso(TODAY), onPick: (a) => {
         openCal(a, { title: L('Til (má sleppa)', 'To (optional)'), min: a, clearText: L('Bara þessi dagur', 'Just this day'), onPick: (b) => { F.quick = 'pick'; F.from = a; F.to = b; renderAll(); }, onClear: () => { F.quick = 'pick'; F.from = a; F.to = a; renderAll(); } });
@@ -127,7 +170,7 @@ function renderDateChips() {
 function norm(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ð/g, 'd').replace(/þ/g, 'th').replace(/æ/g, 'ae').replace(/ö/g, 'o').replace(/[,.\-–]/g, ' ').replace(/\s+/g, ' ').trim(); }
 function eventsInDates() {
   const [a, b] = dateRange();
-  return EVENTS.filter((e) => e.date >= a && e.date <= b);
+  return EVENTS.filter((e) => e.date >= a && e.date <= b && typeMatch(e));
 }
 function textMatch(e, q) {
   const p = PLACE[e.place_id] || {};
@@ -180,7 +223,27 @@ function renderRegions() {
   $('regions').querySelectorAll('[data-r]').forEach((c) => (c.onclick = () => fitArea('region', c.dataset.r)));
 }
 
-function renderAll() { renderDateChips(); renderRegions(); renderList(); updateMapData(); }
+function renderFilters() {
+  const inDates = (() => { const [a, b] = dateRange(); return EVENTS.filter((e) => e.date >= a && e.date <= b); })();
+  const cT = {}, cG = {};
+  for (const e of inDates) { (e.tags || []).forEach((t) => (cT[t] = (cT[t] || 0) + 1)); (e.genres || []).forEach((g) => (cG[g] = (cG[g] || 0) + 1)); }
+  const nFam = inDates.filter((e) => e.fam).length;
+  const active = SF.tags.size + SF.genres.size + (SF.fam ? 1 : 0);
+  const opt = (k, v, label, n, on) => `<button class="opt ${on ? 'on' : ''}" data-${k}="${v}"><span>${label}</span><small>${n || 0}</small></button>`;
+  $('filters').innerHTML = `<div class="grp"><h3>🎛️ ${L('Hvað viltu sjá?', 'What do you want to see?')}</h3>
+     ${TAGS.map((t) => opt('ft', t, esc(TAGL[lang][t]), cT[t], SF.tags.has(t))).join('')}
+     ${opt('ffam', 1, '👨‍👩‍👧 ' + L('Fjölskylduvænt', 'Family friendly'), nFam, SF.fam)}</div>
+   <div class="grp"><h3>🎸 ${L('Tónlistarstefna', 'Music genre')}</h3>
+     ${GENRES.map((g) => opt('fg', g, esc(GENL[lang][g]), cG[g], SF.genres.has(g))).join('')}</div>
+   ${active ? `<button class="btn sm clear" id="fClear">✕ ${L('Hreinsa síu', 'Clear filter')}</button>` : ''}`;
+  const fb = document.querySelector('[data-q="filters"]');
+  if (fb) fb.textContent = '🎛️ ' + L('Sía', 'Filter') + (active ? ` (${active})` : '');
+  $('filters').querySelectorAll('[data-ft]').forEach((b) => (b.onclick = () => { const t = b.dataset.ft; SF.tags.has(t) ? SF.tags.delete(t) : SF.tags.add(t); saveSF(); renderAll(); }));
+  $('filters').querySelectorAll('[data-fg]').forEach((b) => (b.onclick = () => { const g = b.dataset.fg; SF.genres.has(g) ? SF.genres.delete(g) : SF.genres.add(g); saveSF(); renderAll(); }));
+  $('filters').querySelectorAll('[data-ffam]').forEach((b) => (b.onclick = () => { SF.fam = !SF.fam; saveSF(); renderAll(); }));
+  const c = $('fClear'); if (c) c.onclick = () => { SF.tags.clear(); SF.genres.clear(); SF.fam = false; saveSF(); renderAll(); };
+}
+function renderAll() { renderDateChips(); renderFilters(); renderRegions(); renderList(); updateMapData(); }
 
 /* ---------- Kortið ---------- */
 const ICELAND = [[-24.6, 63.25], [-13.4, 66.6]];
@@ -213,6 +276,7 @@ function tuneMap() {
   for (const l of map.getStyle().layers) {
     const sl = l['source-layer'] || '';
     try {
+      if (l.type === 'symbol' && sl === 'place' && /country|state|city|town|village|capital/.test(l.id)) { map.setLayoutProperty(l.id, 'visibility', 'none'); continue; }
       if (l.type === 'symbol' && map.getLayoutProperty(l.id, 'text-field') !== undefined) {
         const sz = scaleSize(map.getLayoutProperty(l.id, 'text-size') ?? 16, sl === 'transportation_name' ? 1.35 : 1.2);
         if (sz !== null) map.setLayoutProperty(l.id, 'text-size', sz);
@@ -276,6 +340,8 @@ function updateMapData() {
   if (!mapReady) return;
   map.getSource('pl').setData(pointsGeo(true));
   map.getSource('pl0').setData(pointsGeo(false));
+  map.getSource('hub').setData(aggGeo('hub'));
+  map.getSource('town').setData(aggGeo('town'));
 }
 
 async function initMap() {
@@ -299,22 +365,38 @@ async function initMap() {
     map.addLayer({ id: 'muni-line', type: 'line', source: 'areas', minzoom: 7, filter: ['==', ['get', 'kind'], 'muni'], paint: { 'line-color': A, 'line-opacity': 0.35, 'line-width': 1, 'line-dasharray': [2, 2] } });
 
     map.addSource('pl0', { type: 'geojson', data: pointsGeo(false) });
-    map.addLayer({ id: 'pt0', type: 'circle', source: 'pl0', minzoom: 9, paint: { 'circle-radius': 5, 'circle-color': '#8a6a64', 'circle-stroke-width': 1, 'circle-stroke-color': '#1d1214' } });
+    map.addLayer({ id: 'pt0', type: 'circle', source: 'pl0', minzoom: 12, paint: { 'circle-radius': 5, 'circle-color': '#8a6a64', 'circle-stroke-width': 1, 'circle-stroke-color': '#1d1214' } });
     map.addLayer({ id: 'pt0-l', type: 'symbol', source: 'pl0', minzoom: 12, layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': 12, 'text-offset': [0, 1.1], 'text-anchor': 'top' }, paint: { 'text-color': '#b9958d', 'text-halo-color': '#1d1214', 'text-halo-width': 1.2 } });
 
     map.addSource('pl', { type: 'geojson', data: pointsGeo(true), cluster: true, clusterRadius: 42, clusterMaxZoom: 15, clusterProperties: { n: ['+', ['get', 'n']] } });
-    map.addLayer({ id: 'cl', type: 'circle', source: 'pl', filter: ['has', 'point_count'],
+    map.addLayer({ id: 'cl', minzoom: Z_TOWN, type: 'circle', source: 'pl', filter: ['has', 'point_count'],
       paint: { 'circle-color': A, 'circle-opacity': 0.92, 'circle-stroke-width': 3, 'circle-stroke-color': 'rgba(222,138,90,.35)',
         'circle-radius': ['step', ['get', 'n'], 14, 5, 18, 20, 23, 50, 28] } });
-    map.addLayer({ id: 'cl-n', type: 'symbol', source: 'pl', filter: ['has', 'point_count'],
+    map.addLayer({ id: 'cl-n', minzoom: Z_TOWN, type: 'symbol', source: 'pl', filter: ['has', 'point_count'],
       layout: { 'text-field': ['to-string', ['get', 'n']], 'text-font': ['Noto Sans Bold'], 'text-size': 14, 'text-allow-overlap': true }, paint: { 'text-color': '#2a1208' } });
-    map.addLayer({ id: 'pt', type: 'circle', source: 'pl', filter: ['!', ['has', 'point_count']],
+    map.addLayer({ id: 'pt', minzoom: Z_TOWN, type: 'circle', source: 'pl', filter: ['!', ['has', 'point_count']],
       paint: { 'circle-color': A, 'circle-radius': ['step', ['get', 'n'], 9, 3, 11, 10, 13], 'circle-stroke-width': 2, 'circle-stroke-color': '#1d1214' } });
-    map.addLayer({ id: 'pt-n', type: 'symbol', source: 'pl', filter: ['!', ['has', 'point_count']],
+    map.addLayer({ id: 'pt-n', minzoom: Z_TOWN, type: 'symbol', source: 'pl', filter: ['!', ['has', 'point_count']],
       layout: { 'text-field': ['to-string', ['get', 'n']], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-allow-overlap': true }, paint: { 'text-color': '#2a1208' } });
-    map.addLayer({ id: 'pt-l', type: 'symbol', source: 'pl', filter: ['!', ['has', 'point_count']],
+    map.addLayer({ id: 'pt-l', minzoom: Z_TOWN, type: 'symbol', source: 'pl', filter: ['!', ['has', 'point_count']],
       layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Bold'], 'text-size': 13, 'text-variable-anchor': ['left', 'right', 'top', 'bottom'], 'text-radial-offset': 1.1, 'text-optional': true },
       paint: { 'text-color': '#f2e2dc', 'text-halo-color': '#1d1214', 'text-halo-width': 1.5 } });
+
+    // Bæjabólur: miðstöðvar langt frá, allir bæir nær.
+    const bubble = (id, src, minz, maxz, labelFilter) => {
+      map.addSource(src, { type: 'geojson', data: aggGeo(src) });
+      map.addLayer({ id: id + '-c', type: 'circle', source: src, minzoom: minz, maxzoom: maxz, filter: ['>', ['get', 'n'], 0],
+        paint: { 'circle-color': A, 'circle-opacity': 0.95, 'circle-stroke-width': 3, 'circle-stroke-color': 'rgba(222,138,90,.35)', 'circle-radius': ['step', ['get', 'n'], 12, 5, 15, 20, 19, 50, 24] } });
+      map.addLayer({ id: id + '-n', type: 'symbol', source: src, minzoom: minz, maxzoom: maxz, filter: ['>', ['get', 'n'], 0],
+        layout: { 'text-field': ['to-string', ['get', 'n']], 'text-font': ['Noto Sans Bold'], 'text-size': 14, 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': '#2a1208' } });
+      map.addLayer({ id: id + '-l', type: 'symbol', source: src, minzoom: minz, maxzoom: maxz, filter: labelFilter,
+        layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Bold'], 'text-size': ['case', ['>', ['get', 'n'], 0], 16, 14],
+          'text-variable-anchor': ['left', 'right', 'top', 'bottom'], 'text-radial-offset': ['case', ['>', ['get', 'n'], 0], 1.5, 0.3],
+          'symbol-sort-key': ['-', 0, ['get', 'n']] },
+        paint: { 'text-color': ['case', ['>', ['get', 'n'], 0], '#f6e9e2', '#b9a29b'], 'text-halo-color': '#120a0b', 'text-halo-width': 1.8 } });
+    };
+    bubble('hub', 'hub', 0, Z_HUB, ['any', ['>', ['get', 'n'], 0], ['==', ['get', 'major'], 1]]);
+    bubble('town', 'town', Z_HUB, Z_TOWN, true);
 
     if (!wired) { wired = true;
     const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 8 });
@@ -327,10 +409,14 @@ async function initMap() {
     });
     map.on('mouseleave', 'reg-fill', () => { if (hoverId !== null) map.setFeatureState({ source: 'areas', id: hoverId }, { hover: false }); hoverId = null; map.getCanvas().style.cursor = ''; tip.remove(); });
     map.on('click', (ev) => {
-      const hits = map.queryRenderedFeatures(ev.point, { layers: ['cl', 'pt', 'pt0', 'reg-fill'].filter((l) => map.getLayer(l)) });
+      const hits = map.queryRenderedFeatures(ev.point, { layers: ['hub-c', 'town-c', 'cl', 'pt', 'pt0', 'reg-fill'].filter((l) => map.getLayer(l)) });
       if (!hits.length) return;
       const f = hits[0];
-      if (f.layer.id === 'cl') {
+      if (f.layer.id === 'hub-c' || f.layer.id === 'town-c') {
+        tip.remove(); F.inView = true; F.placeId = null;
+        const big = f.properties.name === 'Reykjavík';
+        map.flyTo({ center: f.geometry.coordinates, zoom: f.layer.id === 'hub-c' && !big ? Z_HUB + 1.5 : Z_TOWN + 2 });
+      } else if (f.layer.id === 'cl') {
         map.getSource('pl').getClusterExpansionZoom(f.properties.cluster_id).then((z) => { F.inView = true; map.easeTo({ center: f.geometry.coordinates, zoom: Math.min(z + 0.3, 17) }); });
       } else if (f.layer.id === 'pt' || f.layer.id === 'pt0') {
         F.placeId = f.properties.id; renderAll();
@@ -339,7 +425,7 @@ async function initMap() {
         tip.remove(); fitArea('region', f.properties.id);
       }
     });
-    ['cl', 'pt', 'pt0'].forEach((l) => { map.on('mouseenter', l, () => (map.getCanvas().style.cursor = 'pointer')); map.on('mouseleave', l, () => (map.getCanvas().style.cursor = '')); });
+    ['hub-c', 'town-c', 'cl', 'pt', 'pt0'].forEach((l) => { map.on('mouseenter', l, () => (map.getCanvas().style.cursor = 'pointer')); map.on('mouseleave', l, () => (map.getCanvas().style.cursor = '')); });
     map.on('dragstart', () => { F.inView = true; });
     map.on('zoomstart', (ev) => { if (ev.originalEvent) F.inView = true; });
     map.on('moveend', () => { if (F.inView) renderList(); });
@@ -786,6 +872,8 @@ function openEventForm(ev, isCopy) {
    <div class="f"><label>🕘 Byrjar</label>${timeFieldHtml('time', ev.time || '21:00')}</div>
    <div class="f"><label>⏱️ Lýkur (má sleppa)</label>${timeFieldHtml('end_time', ev.end_time || '', true)}</div>
    <div class="f"><label>🏷️ Hvernig viðburður?</label><div class="tagpick">${TAGS.map((t) => `<span class="chip ${tags.has(t) ? 'on' : ''}" data-tag="${t}">${TAGL.is[t]}</span>`).join('')}</div>
+     <div id="genreBox" class="${tags.has('tonleikar') ? '' : 'hidden'}" style="margin-top:10px"><span class="role">🎸 Tónlistarstefna (má velja fleiri en eina, max 4):</span>
+       <div class="tagpick" style="margin-top:6px">${GENRES.map((g) => `<span class="chip ${(ev.genres || []).includes(g) ? 'on' : ''}" data-genre="${g}">${GENL.is[g]}</span>`).join('')}</div></div>
      <input type="text" name="other_label" class="${tags.has('annad') ? '' : 'hidden'}" style="margin-top:8px" maxlength="40" placeholder="Hvað er þetta? t.d. fundur eða bingó" value="${esc(ev.other_label || '')}"></div>
    <div class="two"><div class="f"><label>💰 Verð (kr.)</label><input type="number" name="price" min="0" step="1" inputmode="numeric" placeholder="0 = frítt inn" value="${ev.price ?? ''}"></div>
      <div class="f"><label>&nbsp;</label><label class="check"><input type="checkbox" name="door" ${ev.door ? 'checked' : ''}> 🚪 Selt inn við hurð</label></div></div>
@@ -811,7 +899,8 @@ function openEventForm(ev, isCopy) {
   $('dateBtn').onclick = () => openCal(f.date.value || iso(TODAY), { title: 'Dagsetning', min: iso(TODAY), allowPast: true, onPick: setDate });
   const checkChange = () => { const hb = $('hlBox'); if (hb) hb.classList.toggle('hidden', !(ev.status === 'approved' && (f.date.value !== ev.date || f.time.value !== ev.time))); };
   f.querySelectorAll('[data-tf="time"] [data-tq]').forEach((c) => c.addEventListener('click', checkChange));
-  f.querySelectorAll('[data-tag]').forEach((c) => (c.onclick = () => { c.classList.toggle('on'); f.other_label.classList.toggle('hidden', !f.querySelector('[data-tag="annad"].on')); }));
+  f.querySelectorAll('[data-tag]').forEach((c) => (c.onclick = () => { c.classList.toggle('on'); f.other_label.classList.toggle('hidden', !f.querySelector('[data-tag="annad"].on')); $('genreBox').classList.toggle('hidden', !f.querySelector('[data-tag="tonleikar"].on')); }));
+  f.querySelectorAll('[data-genre]').forEach((c) => (c.onclick = () => { if (!c.classList.contains('on') && f.querySelectorAll('[data-genre].on').length >= 4) return toast('Mest 4 stefnur', true); c.classList.toggle('on'); }));
   const setAge = (a) => {
     const known = AGES.includes(String(a));
     f.querySelectorAll('[data-age]').forEach((x) => x.classList.toggle('on', x.dataset.age === (known ? String(a) : '__other')));
@@ -854,7 +943,7 @@ function openEventForm(ev, isCopy) {
     const body = {
       page_id: f.page_id.value, place_id: pf.value(), title: f.elements.title.value, date: f.date.value, time: f.time.value, end_time: f.end_time.value,
       price: f.price.value === '' ? null : Number(f.price.value), door: f.door.checked, ticket: f.ticket.value, age: f.age.value, age_text: f.age_text.value,
-      tags: tagsSel, other_label: f.other_label.value, fam: f.fam.checked, descr: f.descr.value, poster: f.poster.value,
+      tags: tagsSel, genres: [...f.querySelectorAll('[data-genre].on')].map((c) => c.dataset.genre), other_label: f.other_label.value, fam: f.fam.checked, descr: f.descr.value, poster: f.poster.value,
       repeat_weeks: f.repeat_weeks ? Number(f.repeat_weeks.value) : 1, highlight_change: f.highlight_change ? f.highlight_change.checked : false,
     };
     const fail = (msg) => { errBox.innerHTML = `<p class="err">${esc(msg)}</p>`; };

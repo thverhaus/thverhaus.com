@@ -9,6 +9,7 @@ const SESSION_DAYS = 365;
 const LOGIN_TTL_MIN = 30;
 const MAX_POSTER_BYTES = 3 * 1024 * 1024;
 const TAGS = ["tonleikar", "leikhus", "list", "dj", "uppistand", "pubquiz", "annad"];
+const GENRES = ["rokk", "metall", "ponk", "popp", "hiphop", "raf", "djass", "blus", "kantri", "thjodlaga", "trubador", "klassik", "kor", "abreidur"];
 
 /* ---------------- Gagnagrunnur ---------------- */
 
@@ -32,6 +33,13 @@ const SCHEMA = [
   `INSERT OR IGNORE INTO pages (id,kind,name,code,created) VALUES ('p-hrud','band','Hrúðurkarlarnir','HRUD31',0)`,
 ];
 
+// Nýir dálkar í eldri gagnagrunni (villa = dálkurinn er þegar til).
+async function migrate(env) {
+  for (const sql of [`ALTER TABLE places ADD COLUMN cat TEXT DEFAULT ''`, `ALTER TABLE events ADD COLUMN genres TEXT DEFAULT '[]'`]) {
+    try { await env.DB.prepare(sql).run(); } catch {}
+  }
+}
+
 // Staðir úr OpenStreetMap (barir, pöbbar, félagsheimili o.fl.) – fluttir inn einu sinni per útgáfu.
 async function importOsm(env) {
   const row = await env.DB.prepare(`SELECT v FROM meta WHERE k='osm'`).first();
@@ -50,7 +58,7 @@ async function importOsm(env) {
 let schemaReady = null;
 function ensureSchema(env) {
   if (!schemaReady) {
-    schemaReady = env.DB.batch(SCHEMA.map((s) => env.DB.prepare(s))).then(() => importOsm(env)).catch((e) => {
+    schemaReady = env.DB.batch(SCHEMA.map((s) => env.DB.prepare(s))).then(() => migrate(env)).then(() => importOsm(env)).catch((e) => {
       schemaReady = null;
       throw e;
     });
@@ -424,12 +432,14 @@ async function apiUpdatePlace(req, env, user, placeId) {
 
 /* ---------------- Viðburðir ---------------- */
 
-const EV_COLS = `e.id,e.place_id,e.page_id,e.title,e.date,e.time,e.end_time,e.price,e.ticket,e.door,e.age,e.age_text,e.tags,e.other_label,e.fam,e.descr,e.poster,e.status,e.cancelled,e.cancel_note,e.time_changed,e.old_time,
+const EV_COLS = `e.id,e.place_id,e.page_id,e.title,e.date,e.time,e.end_time,e.price,e.ticket,e.door,e.age,e.age_text,e.tags,e.other_label,e.fam,e.descr,e.poster,e.status,e.cancelled,e.cancel_note,e.time_changed,e.old_time,e.genres,
   p.name page_name,p.kind page_kind`;
 function outEvent(r) {
   let tags = [];
+  let genres = [];
   try { tags = JSON.parse(r.tags || "[]"); } catch {}
-  return { ...r, tags, door: !!r.door, fam: !!r.fam, cancelled: !!r.cancelled, time_changed: !!r.time_changed };
+  try { genres = JSON.parse(r.genres || "[]"); } catch {}
+  return { ...r, tags, genres, door: !!r.door, fam: !!r.fam, cancelled: !!r.cancelled, time_changed: !!r.time_changed };
 }
 
 async function apiEvents(req, env, url) {
@@ -477,6 +487,7 @@ function cleanEvent(b) {
     age,
     age_text: age ? "" : str(b.age_text, 80),
     tags: JSON.stringify(tags),
+    genres: JSON.stringify(tags.includes("tonleikar") && Array.isArray(b.genres) ? b.genres.filter((g) => GENRES.includes(g)).slice(0, 4) : []),
     other_label: tags.includes("annad") ? str(b.other_label, 40) : "",
     fam: b.fam ? 1 : 0,
     descr: str(b.descr, 3000),
@@ -517,10 +528,10 @@ async function apiCreateEvent(req, env, user) {
     ids.push(id);
     stmts.push(
       env.DB.prepare(
-        `INSERT INTO events (id,place_id,page_id,title,date,time,end_time,price,ticket,door,age,age_text,tags,other_label,fam,descr,poster,status,created_by,created,updated)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO events (id,place_id,page_id,title,date,time,end_time,price,ticket,door,age,age_text,tags,genres,other_label,fam,descr,poster,status,created_by,created,updated)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(id, placeId, pageId, c.title, addDaysISO(c.date, i * 7), c.time, c.end_time, c.price, c.ticket, c.door, c.age, c.age_text,
-        c.tags, c.other_label, c.fam, c.descr, c.poster, status, user.id, now(), now())
+        c.tags, c.genres, c.other_label, c.fam, c.descr, c.poster, status, user.id, now(), now())
     );
   }
   await env.DB.batch(stmts);
@@ -556,9 +567,9 @@ async function apiUpdateEvent(req, env, user, id) {
   const changed = ev.date !== c.date || ev.time !== c.time;
   const highlight = changed && b.highlight_change && ev.status === "approved";
   await env.DB.prepare(
-    `UPDATE events SET place_id=?,title=?,date=?,time=?,end_time=?,price=?,ticket=?,door=?,age=?,age_text=?,tags=?,other_label=?,fam=?,descr=?,poster=?,status=?,
+    `UPDATE events SET place_id=?,title=?,date=?,time=?,end_time=?,price=?,ticket=?,door=?,age=?,age_text=?,tags=?,genres=?,other_label=?,fam=?,descr=?,poster=?,status=?,
        time_changed=?,old_time=?,updated=? WHERE id=?`
-  ).bind(placeId, c.title, c.date, c.time, c.end_time, c.price, c.ticket, c.door, c.age, c.age_text, c.tags, c.other_label, c.fam, c.descr,
+  ).bind(placeId, c.title, c.date, c.time, c.end_time, c.price, c.ticket, c.door, c.age, c.age_text, c.tags, c.genres, c.other_label, c.fam, c.descr,
     c.poster, status, highlight ? 1 : ev.time_changed, highlight ? `${ev.date} ${ev.time}` : ev.old_time, now(), id).run();
   return json({ ok: true, status });
 }
