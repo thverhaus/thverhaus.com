@@ -1,6 +1,6 @@
 import { createDemo, deleteDemo } from "./demo.js";
 import OSM_PLACES from "./osm-places.json";
-const OSM_VERSION = "261114";
+const OSM_VERSION = "261114b";
 
 // Viðburðasíðan – netþjónn (Cloudflare Worker + D1 + R2).
 // Aðskilið frá Mulehead. Öll slóð byrjar á BASE_PATH (nú /event).
@@ -40,7 +40,8 @@ async function importOsm(env) {
   const now = Date.now();
   for (let i = 0; i < OSM_PLACES.length; i += 90) {
     await env.DB.batch(OSM_PLACES.slice(i, i + 90).map(([id, name, cat, lon, lat, town, muni, region]) =>
-      env.DB.prepare(`INSERT OR IGNORE INTO places (id,name,cat,town,muni,region,lat,lon,created) VALUES (?,?,?,?,?,?,?,?,?)`)
+      env.DB.prepare(`INSERT INTO places (id,name,cat,town,muni,region,lat,lon,created) VALUES (?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET town=excluded.town,muni=excluded.muni,region=excluded.region WHERE places.created_by IS NULL`)
         .bind(id, name, cat, town, muni, region, lat, lon, now)));
   }
   await env.DB.prepare(`INSERT OR REPLACE INTO meta (k,v) VALUES ('osm',?)`).bind(OSM_VERSION).run();
