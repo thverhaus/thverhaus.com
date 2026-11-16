@@ -167,7 +167,7 @@ function townTier(name) {
 function aggGeo(kind) {
   const n = {};
   const rural = {};
-  for (const e of eventsInDates()) {
+  for (const e of eventsInDates(true)) {
     const k = P2T[e.place_id];
     if (k) n[k] = (n[k] || 0) + 1; else if (PLACE[e.place_id]) rural[e.place_id] = (rural[e.place_id] || 0) + 1;
   }
@@ -233,16 +233,18 @@ function renderDateChips() {
 
 /* ---------- Síun ---------- */
 function norm(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ð/g, 'd').replace(/þ/g, 'th').replace(/æ/g, 'ae').replace(/ö/g, 'o').replace(/[,.\-–]/g, ' ').replace(/\s+/g, ' ').trim(); }
-function eventsInDates() {
+// allRegions: kortið sýnir alltaf allt landið; valinn landshluti síar bara listann.
+function eventsInDates(allRegions) {
   const [a, b] = dateRange();
-  return EVENTS.filter((e) => e.date >= a && e.date <= b && typeMatch(e) && regionMatch(e));
+  return EVENTS.filter((e) => e.date >= a && e.date <= b && typeMatch(e) && (allRegions || regionMatch(e)));
 }
 function textMatch(e, q) {
   const p = PLACE[e.place_id] || {};
   return norm([e.title, e.page_name, p.name, p.town, p.area, muniName(p.muni), regionName(p.region), tagStr(e).join(' ')].join(' ')).includes(q);
 }
 function visibleEvents() {
-  let list = eventsInDates();
+  // Ef notandinn valdi bólu/stað eða færði kortið sjálfur ræður það, ekki valinn landshluti.
+  let list = eventsInDates(!!(F.sel || F.placeId || (F.inView && map && mapReady)));
   const q = norm(F.q);
   if (q) list = list.filter((e) => textMatch(e, q));
   if (F.sel) list = list.filter((e) => F.sel.ids.has(e.place_id));
@@ -289,7 +291,7 @@ $('showAll').onclick = () => { F.placeId = null; F.sel = null; F.inView = false;
 
 function renderRegions() {
   const counts = {};
-  for (const e of eventsInDates()) { const p = PLACE[e.place_id]; if (p) counts[p.region] = (counts[p.region] || 0) + 1; }
+  for (const e of eventsInDates(true)) { const p = PLACE[e.place_id]; if (p) counts[p.region] = (counts[p.region] || 0) + 1; }
   $('regions').innerHTML = GEO.regions.map((r) => `<span class="chip" data-r="${r.id}">${esc(L(r.n, r.en))} <b>${counts[r.id] || 0}</b></span>`).join('');
   $('regions').querySelectorAll('[data-r]').forEach((c) => (c.onclick = () => fitArea('region', c.dataset.r)));
 }
@@ -421,7 +423,7 @@ function fitArea(kind, id, keepView) {
 }
 function pointsGeo(withEvents) {
   const n = {};
-  for (const e of eventsInDates()) n[e.place_id] = (n[e.place_id] || 0) + 1;
+  for (const e of eventsInDates(true)) n[e.place_id] = (n[e.place_id] || 0) + 1;
   return {
     type: 'FeatureCollection',
     features: PLACES.filter((p) => (withEvents ? n[p.id] : !n[p.id])).map((p) => ({
@@ -530,9 +532,7 @@ function drawSimpleMap() {
   const POS = { hofudborg: [-22.25, 64.3, 'end'], sudurnes: [-22.85, 63.72, 'end'], vesturland: [-21.3, 64.9], sudurland: [-19.6, 64.05], vestfirdir: [-22.6, 65.75], nlv: [-19.9, 65.45], nle: [-17.2, 65.55], austurland: [-15.2, 64.95] };
   const px = (c) => ((c[0] - X0) * K * S).toFixed(1) + ',' + ((Y1 - c[1]) * S).toFixed(1);
   const counts = {};
-  const keep = F.region; F.region = null; // fjöldi í öllum landshlutum, líka þeim sem ekki eru valdir
-  for (const e of eventsInDates()) { const p = PLACE[e.place_id]; if (p) counts[p.region] = (counts[p.region] || 0) + 1; }
-  F.region = keep;
+  for (const e of eventsInDates(true)) { const p = PLACE[e.place_id]; if (p) counts[p.region] = (counts[p.region] || 0) + 1; }
   const regs = AREAS.features.filter((f) => f.properties.kind === 'region');
   let paths = '', labels = '';
   for (const f of regs) {
@@ -673,7 +673,7 @@ async function initMap() {
         const one = ps.length === 1 ? ps[0] : null;
         F.placeId = null; F.inView = false;
         F.sel = { label: one ? one.name + (NEAR.has(one.name) && one.key.startsWith('t:') ? ' ' + L('og nágrenni', 'and surroundings') : '') : namesStr(ps), ids };
-        const withEv = new Set(eventsInDates().filter((e) => ids.has(e.place_id)).map((e) => e.place_id));
+        const withEv = new Set(eventsInDates(true).filter((e) => ids.has(e.place_id)).map((e) => e.place_id));
         const pts = [...withEv].map((id) => PLACE[id]).filter(Boolean);
         if (pts.length) {
           const b = [[Math.min(...pts.map((p) => p.lon)), Math.min(...pts.map((p) => p.lat))], [Math.max(...pts.map((p) => p.lon)), Math.max(...pts.map((p) => p.lat))]];
