@@ -84,7 +84,7 @@ let PLACES = [];       // staðir úr gagnagrunni
 let PLACE = {};        // id -> staður
 let EVENTS = [];
 let ME = null;         // {user,pages,pending}
-const F = { quick: 'all', from: null, to: null, q: '', placeId: null, inView: false };
+const F = { quick: 'all', from: null, to: null, q: '', placeId: null, inView: false, sel: null };
 const SF = (() => { const v = store.get('filters2', {}); return { tags: new Set(v.tags || []), genres: new Set(v.genres || []), fam: !!v.fam, free: !!v.free, gOpen: false }; })();
 const saveSF = () => store.set('filters2', { tags: [...SF.tags], genres: [...SF.genres], fam: SF.fam, free: SF.free });
 function typeMatch(e) {
@@ -124,26 +124,66 @@ function setPlaces(list) { PLACES = list; PLACE = {}; list.forEach((p) => (PLACE
 const Z_HUB = 7, Z_TOWN = 10.5;
 const HUBS = ['Reykjavík', 'Akureyri', 'Ísafjörður', 'Egilsstaðir', 'Höfn', 'Vík', 'Selfoss', 'Vestmannaeyjar'];
 const MAJOR = new Set(HUBS);
-let P2T = {}, P2H = {}, TOWNLL = {};
+let P2T = {}, P2H = {}, TOWNLL = {}, ABSORB = {};
 function assignPlaces() {
   if (!GEO) return;
   TOWNLL = {}; GEO.towns.forEach((t) => (TOWNLL[t.n] = t.ll));
   const hubs = HUBS.filter((h) => TOWNLL[h]);
   const nearest = (ll, names) => { let b = null, bd = 1e9; for (const n of names) { const d = distKm(ll, TOWNLL[n]); if (d < bd) { bd = d; b = n; } } return b; };
   const allTowns = Object.keys(TOWNLL);
+  // Smáhverfi alveg við stærri bæ (t.d. Árbæjarhverfi við Selfoss) teljast til stærri bæjarins.
+  ABSORB = {};
+  for (const t of GEO.towns) {
+    if ((t.pop || 0) >= 1000 || MAJOR.has(t.n) || PROMOTE.has(t.n)) continue;
+    let best = null, bd = 4;
+    for (const u of GEO.towns) if (((u.pop || 0) >= 1000 || MAJOR.has(u.n)) && u.n !== t.n) { const d = distKm(t.ll, u.ll); if (d < bd) { bd = d; best = u.n; } }
+    if (best) ABSORB[t.n] = best;
+  }
   P2T = {}; P2H = {};
+  const POP = {}; GEO.towns.forEach((t) => (POP[t.n] = t.pop || 0));
   for (const p of PLACES) {
     const ll = [p.lon, p.lat];
-    P2T[p.id] = p.town && TOWNLL[p.town] ? p.town : nearest(ll, allTowns);
+    let t = p.town && TOWNLL[p.town] ? p.town : null;
+    if (!t) { const n = nearest(ll, allTowns); const lim = POP[n] > 20000 ? 8 : POP[n] > 2000 ? 3.5 : 1.8; if (distKm(ll, TOWNLL[n]) <= lim) t = n; }
+    P2T[p.id] = t && ABSORB[t] ? ABSORB[t] : t; // null = úti í sveit: sést undir eigin nafni
     P2H[p.id] = p.region === 'hofudborg' ? 'Reykjavík' : nearest(ll, hubs);
   }
 }
+const PROMOTE = new Set([]); // bæir sem Júlíus vill færa upp um flokk, t.d. 'Kirkjubæjarklaustur'
+const HUB_ANCHOR = { 'Reykjavík': 'bottom', 'Egilsstaðir': 'right', 'Vestmannaeyjar': 'right' }; // annars: nafn hægra megin við bóluna
+const ANCH_OFF = { left: [1.5, 0], right: [-1.5, 0], bottom: [0, -1.6], top: [0, 1.6] };
+function townTier(name) {
+  if (MAJOR.has(name) || PROMOTE.has(name)) return 1;
+  const t = GEO.towns.find((x) => x.n === name);
+  return t && t.pop >= 1000 ? 2 : 3;
+}
 function aggGeo(kind) {
   const n = {};
-  for (const e of eventsInDates()) { const k = (kind === 'hub' ? P2H : P2T)[e.place_id]; if (k) n[k] = (n[k] || 0) + 1; }
-  const names = kind === 'hub' ? HUBS : Object.keys(TOWNLL);
-  return { type: 'FeatureCollection', features: names.filter((t) => TOWNLL[t]).map((t) => ({
-    type: 'Feature', geometry: { type: 'Point', coordinates: TOWNLL[t] }, properties: { name: t, n: n[t] || 0, major: MAJOR.has(t) ? 1 : 0 } })) };
+  const rural = {};
+  for (const e of eventsInDates()) {
+    if (kind === 'hub') { const k = P2H[e.place_id]; if (k) n[k] = (n[k] || 0) + 1; continue; }
+    const k = P2T[e.place_id];
+    if (k) n[k] = (n[k] || 0) + 1; else if (PLACE[e.place_id]) rural[e.place_id] = (rural[e.place_id] || 0) + 1;
+  }
+  const names = kind === 'hub' ? HUBS : Object.keys(TOWNLL).filter((t) => !ABSORB[t]);
+  const feats = names.filter((t) => TOWNLL[t]).map((t) => {
+    const cnt = n[t] || 0, tier = kind === 'hub' ? 1 : townTier(t);
+    const anchor = kind === 'hub' ? HUB_ANCHOR[t] || 'left' : 'left';
+    return { type: 'Feature', geometry: { type: 'Point', coordinates: TOWNLL[t] },
+      properties: { key: 't:' + t, name: t, n: cnt, major: MAJOR.has(t) ? 1 : 0, tier, keep: cnt > 0 || tier <= 2 ? 1 : 0, anchor, off: cnt > 0 ? ANCH_OFF[anchor] : [0, 0] } };
+  });
+  for (const [id, cnt] of Object.entries(rural)) {
+    const p = PLACE[id];
+    feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+      properties: { key: 'p:' + id, name: p.name, n: cnt, major: 0, tier: 3, keep: 1, anchor: 'left', off: ANCH_OFF.left } });
+  }
+  return { type: 'FeatureCollection', features: feats };
+}
+// Staðirnir sem bóla nær yfir (svo smellur sýni nákvæmlega viðburðina í henni).
+function bubblePlaces(kind, key) {
+  if (key.startsWith('p:')) return new Set([key.slice(2)]);
+  const name = key.slice(2), map2 = kind === 'hub' ? P2H : P2T;
+  return new Set(PLACES.filter((p) => map2[p.id] === name).map((p) => p.id));
 }
 async function loadEvents() {
   const r = await api('/events?from=' + iso(TODAY) + '&to=' + iso(addDays(TODAY, 365)));
@@ -167,10 +207,10 @@ function renderDateChips() {
   $('dateChips').innerHTML = chips.map(([k, t]) => `<span class="chip ${F.quick === k ? 'on' : ''}" data-q="${k}">${t}</span>`).join('') +
     `<span class="chip ${F.quick === 'pick' ? 'on' : ''}" data-q="pick">${esc(pick)}</span>` +
     `<span class="chip fbtn" data-q="filters">🎛️ ${L('Sía', 'Filter')}</span>` +
-    (F.placeId && PLACE[F.placeId] ? `<span class="chip on" data-q="clearplace">📍 ${esc(PLACE[F.placeId].name)} ✕</span>` : '');
+    (F.sel ? `<span class="chip on" data-q="clearplace">📍 ${esc(F.sel.label)} ✕</span>` : F.placeId && PLACE[F.placeId] ? `<span class="chip on" data-q="clearplace">📍 ${esc(PLACE[F.placeId].name)} ✕</span>` : '');
   $('dateChips').querySelectorAll('[data-q]').forEach((c) => (c.onclick = () => {
     const q = c.dataset.q;
-    if (q === 'clearplace') { F.placeId = null; renderAll(); return; }
+    if (q === 'clearplace') { F.placeId = null; F.sel = null; renderAll(); return; }
     if (q === 'filters') { $('filters').classList.toggle('open'); return; }
     if (q === 'pick') {
       openCal(F.from || iso(TODAY), { title: L('Frá', 'From'), min: iso(TODAY), onPick: (a) => {
@@ -196,7 +236,8 @@ function visibleEvents() {
   let list = eventsInDates();
   const q = norm(F.q);
   if (q) list = list.filter((e) => textMatch(e, q));
-  if (F.placeId) list = list.filter((e) => e.place_id === F.placeId);
+  if (F.sel) list = list.filter((e) => F.sel.ids.has(e.place_id));
+  else if (F.placeId) list = list.filter((e) => e.place_id === F.placeId);
   else if (F.inView && map && mapReady) {
     const b = map.getBounds();
     list = list.filter((e) => { const p = PLACE[e.place_id]; return p && b.contains([p.lon, p.lat]); });
@@ -221,16 +262,16 @@ function renderList() {
     if (e.date !== day) { day = e.date; html += `<div class="dayh">${esc(fmtLong(day))}</div>`; }
     html += evRow(e);
   }
-  $('list').innerHTML = html || `<div class="empty">${L('Engir viðburðir fundust.', 'No events found.')}${F.inView || F.placeId || F.q ? '' : '<br>' + L('Vertu fyrst(ur) til að setja inn viðburð!', 'Be the first to post an event!')}</div>`;
+  $('list').innerHTML = html || `<div class="empty">${L('Engir viðburðir fundust.', 'No events found.')}${F.inView || F.placeId || F.sel || F.q ? '' : '<br>' + L('Vertu fyrst(ur) til að setja inn viðburð!', 'Be the first to post an event!')}</div>`;
   $('list').querySelectorAll('[data-ev]').forEach((b) => (b.onclick = () => openEvent(b.dataset.ev)));
   const n = list.length;
-  $('listInfo').textContent = F.placeId ? `${n} ${L('viðburðir á', 'events at')} ${PLACE[F.placeId]?.name || ''}`
+  $('listInfo').textContent = F.sel ? `${n} ${L('viðburðir', 'events')}: ${F.sel.label}` : F.placeId ? `${n} ${L('viðburðir á', 'events at')} ${PLACE[F.placeId]?.name || ''}`
     : F.inView ? `${n} ${L('viðburðir á svæðinu sem sést á kortinu', 'events in the map area')}` : `${n} ${L('viðburðir á öllu landinu', 'events in all of Iceland')}`;
   const showAll = $('showAll');
-  showAll.classList.toggle('hidden', !(F.inView || F.placeId));
+  showAll.classList.toggle('hidden', !(F.inView || F.placeId || F.sel));
   showAll.textContent = L('Sýna allt landið', 'Show all of Iceland');
 }
-$('showAll').onclick = () => { F.placeId = null; F.inView = false; fitIceland(); renderAll(); };
+$('showAll').onclick = () => { F.placeId = null; F.sel = null; F.inView = false; fitIceland(); renderAll(); };
 
 function renderRegions() {
   const counts = {};
@@ -354,7 +395,7 @@ function fitIceland() { if (map) map.fitBounds(ICELAND, { padding: 40, animate: 
 function fitArea(kind, id) {
   const f = AREAS.features.find((x) => x.properties.kind === kind && x.properties.id === id);
   if (!f || !map) return;
-  F.placeId = null; F.inView = true;
+  F.placeId = null; F.sel = null; F.inView = true;
   map.fitBounds(bboxOf(f.geometry), { padding: 30, maxZoom: 11 });
 }
 function pointsGeo(withEvents) {
@@ -384,7 +425,7 @@ async function initMap() {
   });
   map.touchZoomRotate.disableRotation();
   map.once('load', () => fitIceland());
-  new ResizeObserver(() => { map.resize(); if (!F.inView && !F.placeId) fitIceland(); }).observe($('map'));
+  new ResizeObserver(() => { map.resize(); if (!F.inView && !F.placeId && !F.sel) fitIceland(); }).observe($('map'));
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
   map.addControl(new ThemeControl(), 'top-left');
   let wired = false;
@@ -416,20 +457,26 @@ async function initMap() {
       paint: { 'text-color': '#f2e2dc', 'text-halo-color': '#1d1214', 'text-halo-width': 1.5 } });
 
     // Bæjabólur: miðstöðvar langt frá, allir bæir nær.
-    const bubble = (id, src, minz, maxz, labelFilter) => {
+    const bubble = (id, src, minz, maxz) => {
       map.addSource(src, { type: 'geojson', data: aggGeo(src) });
       map.addLayer({ id: id + '-c', type: 'circle', source: src, minzoom: minz, maxzoom: maxz, filter: ['>', ['get', 'n'], 0],
         paint: { 'circle-color': A, 'circle-opacity': 0.95, 'circle-stroke-width': 3, 'circle-stroke-color': 'rgba(222,138,90,.35)', 'circle-radius': ['step', ['get', 'n'], 12, 5, 15, 20, 19, 50, 24] } });
+      const size = ['match', ['get', 'tier'], 1, 17, 2, 15, 13];
+      const color = ['case', ['>', ['get', 'n'], 0], '#f6e9e2', '#a88f88'];
+      // Litlir bæir án viðburða mega víkja þegar þröngt er…
+      map.addLayer({ id: id + '-l2', type: 'symbol', source: src, minzoom: minz, maxzoom: maxz, filter: ['==', ['get', 'keep'], 0],
+        layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': size, 'text-variable-anchor': ['left', 'right', 'top', 'bottom'], 'text-radial-offset': 0.3 },
+        paint: { 'text-color': color, 'text-halo-color': '#120a0b', 'text-halo-width': 1.6 } });
+      // …en bæir með viðburði og stærri bæir víkja aldrei.
+      map.addLayer({ id: id + '-l', type: 'symbol', source: src, minzoom: minz, maxzoom: maxz, filter: ['==', ['get', 'keep'], 1],
+        layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Bold'], 'text-size': size, 'text-anchor': ['get', 'anchor'], 'text-offset': ['get', 'off'],
+          'text-allow-overlap': true, 'symbol-sort-key': ['-', 0, ['get', 'n']] },
+        paint: { 'text-color': color, 'text-halo-color': '#120a0b', 'text-halo-width': 1.8 } });
       map.addLayer({ id: id + '-n', type: 'symbol', source: src, minzoom: minz, maxzoom: maxz, filter: ['>', ['get', 'n'], 0],
         layout: { 'text-field': ['to-string', ['get', 'n']], 'text-font': ['Noto Sans Bold'], 'text-size': 14, 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': '#2a1208' } });
-      map.addLayer({ id: id + '-l', type: 'symbol', source: src, minzoom: minz, maxzoom: maxz, filter: labelFilter,
-        layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Bold'], 'text-size': ['case', ['>', ['get', 'n'], 0], 16, 14],
-          'text-variable-anchor': ['left', 'right', 'top', 'bottom'], 'text-radial-offset': ['case', ['>', ['get', 'n'], 0], 1.5, 0.3],
-          'symbol-sort-key': ['-', 0, ['get', 'n']] },
-        paint: { 'text-color': ['case', ['>', ['get', 'n'], 0], '#f6e9e2', '#b9a29b'], 'text-halo-color': '#120a0b', 'text-halo-width': 1.8 } });
     };
-    bubble('hub', 'hub', 0, Z_HUB, ['any', ['>', ['get', 'n'], 0], ['==', ['get', 'major'], 1]]);
-    bubble('town', 'town', Z_HUB, Z_TOWN, true);
+    bubble('hub', 'hub', 0, Z_HUB);
+    bubble('town', 'town', Z_HUB, Z_TOWN);
 
     if (!wired) { wired = true;
     const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 8 });
@@ -446,13 +493,22 @@ async function initMap() {
       if (!hits.length) return;
       const f = hits[0];
       if (f.layer.id === 'hub-c' || f.layer.id === 'town-c') {
-        tip.remove(); F.inView = true; F.placeId = null;
-        const big = f.properties.name === 'Reykjavík';
-        map.flyTo({ center: f.geometry.coordinates, zoom: f.layer.id === 'hub-c' && !big ? Z_HUB + 1.5 : Z_TOWN + 2 });
+        tip.remove();
+        const kind = f.layer.id === 'hub-c' ? 'hub' : 'town';
+        const ids = bubblePlaces(kind, f.properties.key);
+        F.placeId = null; F.inView = false; F.sel = { label: f.properties.name + (kind === 'hub' && f.properties.name !== 'Reykjavík' ? ' ' + L('og nágrenni', 'and surroundings') : ''), ids };
+        const withEv = new Set(eventsInDates().filter((e) => ids.has(e.place_id)).map((e) => e.place_id));
+        const pts = [...withEv].map((id) => PLACE[id]).filter(Boolean);
+        if (pts.length) {
+          const b = [[Math.min(...pts.map((p) => p.lon)), Math.min(...pts.map((p) => p.lat))], [Math.max(...pts.map((p) => p.lon)), Math.max(...pts.map((p) => p.lat))]];
+          map.fitBounds(b, { padding: 60, maxZoom: 14 });
+        }
+        renderAll();
+        if (innerWidth < 900) $('list').scrollIntoView({ behavior: 'smooth' });
       } else if (f.layer.id === 'cl') {
         map.getSource('pl').getClusterExpansionZoom(f.properties.cluster_id).then((z) => { F.inView = true; map.easeTo({ center: f.geometry.coordinates, zoom: Math.min(z + 0.3, 17) }); });
       } else if (f.layer.id === 'pt' || f.layer.id === 'pt0') {
-        F.placeId = f.properties.id; renderAll();
+        F.sel = null; F.placeId = f.properties.id; renderAll();
         if (innerWidth < 900) $('list').scrollIntoView({ behavior: 'smooth' });
       } else if (f.layer.id === 'reg-fill' && map.getZoom() < 7.5) {
         tip.remove(); fitArea('region', f.properties.id);
@@ -491,8 +547,8 @@ function wireSearch() {
   const choose = (it) => {
     box.classList.add('hidden'); inp.value = ''; F.q = '';
     if (it.k === 'region' || it.k === 'muni') fitArea(it.k, it.id);
-    else if (it.k === 'town') { F.placeId = null; F.inView = true; map && map.flyTo({ center: it.ll, zoom: 12.5 }); }
-    else if (it.k === 'place') { F.placeId = it.id; const p = PLACE[it.id]; map && map.flyTo({ center: [p.lon, p.lat], zoom: 14 }); }
+    else if (it.k === 'town') { F.placeId = null; F.sel = null; F.inView = true; map && map.flyTo({ center: it.ll, zoom: 12.5 }); }
+    else if (it.k === 'place') { F.sel = null; F.placeId = it.id; const p = PLACE[it.id]; map && map.flyTo({ center: [p.lon, p.lat], zoom: 14 }); }
     renderAll();
   };
   inp.oninput = () => { sel = -1; F.q = inp.value; show(); renderList(); };
@@ -545,7 +601,7 @@ async function openEvent(id) {
     try { await navigator.clipboard.writeText(url); toast(L('Hlekkur afritaður', 'Link copied')); } catch { prompt(L('Afritaðu hlekkinn:', 'Copy the link:'), url); }
   };
   const om = m.el.querySelector('[data-onmap]');
-  if (om) om.onclick = () => { m.close(); showPublic(); const p = PLACE[e.place_id]; F.placeId = p.id; renderAll(); map && map.flyTo({ center: [p.lon, p.lat], zoom: 14 }); };
+  if (om) om.onclick = () => { m.close(); showPublic(); const p = PLACE[e.place_id]; F.sel = null; F.placeId = p.id; renderAll(); map && map.flyTo({ center: [p.lon, p.lat], zoom: 14 }); };
 }
 
 /* ---------- Dagatal (íslenskt, mánudagur fyrst) ---------- */
@@ -606,7 +662,7 @@ async function loadMe() {
   const n = ME.user ? ME.pending : 0;
   $('mineBadge').textContent = n; $('mineBadge').classList.toggle('hidden', !n);
 }
-function showPublic() { $('publicView').classList.remove('hidden'); $('mineView').classList.add('hidden'); $('dateChips').classList.remove('hidden'); if (map) { map.resize(); if (!F.inView && !F.placeId) fitIceland(); } }
+function showPublic() { $('publicView').classList.remove('hidden'); $('mineView').classList.add('hidden'); $('dateChips').classList.remove('hidden'); if (map) { map.resize(); if (!F.inView && !F.placeId && !F.sel) fitIceland(); } }
 async function showMine() {
   $('publicView').classList.add('hidden'); $('mineView').classList.remove('hidden'); $('dateChips').classList.add('hidden');
   await renderMine();
