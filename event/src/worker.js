@@ -1,4 +1,6 @@
 import { createDemo, deleteDemo } from "./demo.js";
+import OSM_PLACES from "./osm-places.json";
+const OSM_VERSION = "261114";
 
 // Viðburðasíðan – netþjónn (Cloudflare Worker + D1 + R2).
 // Aðskilið frá Mulehead. Öll slóð byrjar á BASE_PATH (nú /event).
@@ -19,6 +21,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS members (page_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL, PRIMARY KEY (page_id, user_id))`,
   `CREATE TABLE IF NOT EXISTS trusts (venue_page_id TEXT NOT NULL, page_id TEXT NOT NULL, PRIMARY KEY (venue_page_id, page_id))`,
   `CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, place_id TEXT NOT NULL, page_id TEXT NOT NULL, title TEXT NOT NULL, date TEXT NOT NULL, time TEXT, end_time TEXT, price INTEGER, ticket TEXT, door INTEGER DEFAULT 0, age TEXT, age_text TEXT, tags TEXT, other_label TEXT, fam INTEGER DEFAULT 0, descr TEXT, poster TEXT, status TEXT NOT NULL, cancelled INTEGER DEFAULT 0, cancel_note TEXT, time_changed INTEGER DEFAULT 0, old_time TEXT, created_by TEXT, created INTEGER, updated INTEGER)`,
+  `CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)`,
   `CREATE INDEX IF NOT EXISTS ev_date ON events(date)`,
   `CREATE INDEX IF NOT EXISTS ev_place ON events(place_id)`,
   `CREATE INDEX IF NOT EXISTS ev_page ON events(page_id)`,
@@ -29,10 +32,24 @@ const SCHEMA = [
   `INSERT OR IGNORE INTO pages (id,kind,name,code,created) VALUES ('p-hrud','band','Hrúðurkarlarnir','HRUD31',0)`,
 ];
 
+// Staðir úr OpenStreetMap (barir, pöbbar, félagsheimili o.fl.) – fluttir inn einu sinni per útgáfu.
+async function importOsm(env) {
+  const row = await env.DB.prepare(`SELECT v FROM meta WHERE k='osm'`).first();
+  if (row && row.v === OSM_VERSION) return;
+  try { await env.DB.prepare(`ALTER TABLE places ADD COLUMN cat TEXT DEFAULT ''`).run(); } catch {}
+  const now = Date.now();
+  for (let i = 0; i < OSM_PLACES.length; i += 90) {
+    await env.DB.batch(OSM_PLACES.slice(i, i + 90).map(([id, name, cat, lon, lat, town, muni, region]) =>
+      env.DB.prepare(`INSERT OR IGNORE INTO places (id,name,cat,town,muni,region,lat,lon,created) VALUES (?,?,?,?,?,?,?,?,?)`)
+        .bind(id, name, cat, town, muni, region, lat, lon, now)));
+  }
+  await env.DB.prepare(`INSERT OR REPLACE INTO meta (k,v) VALUES ('osm',?)`).bind(OSM_VERSION).run();
+}
+
 let schemaReady = null;
 function ensureSchema(env) {
   if (!schemaReady) {
-    schemaReady = env.DB.batch(SCHEMA.map((s) => env.DB.prepare(s))).catch((e) => {
+    schemaReady = env.DB.batch(SCHEMA.map((s) => env.DB.prepare(s))).then(() => importOsm(env)).catch((e) => {
       schemaReady = null;
       throw e;
     });
@@ -359,7 +376,7 @@ async function apiCreatePage(req, env, user) {
 
 async function apiPlaces(req, env) {
   const r = await env.DB.prepare(
-    `SELECT pl.id,pl.name,pl.area,pl.town,pl.muni,pl.region,pl.lat,pl.lon,
+    `SELECT pl.id,pl.name,pl.area,pl.town,pl.muni,pl.region,pl.lat,pl.lon,pl.cat,
        (SELECT p.id FROM pages p WHERE p.place_id=pl.id AND p.kind='venue' LIMIT 1) page_id
      FROM places pl ORDER BY pl.name`
   ).all();
