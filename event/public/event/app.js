@@ -263,44 +263,57 @@ function evRow(e) {
   const d = parseISO(e.date);
   const today = e.date === iso(TODAY), tmrw = e.date === iso(addDays(TODAY, 1));
   const dow = today ? L('Í DAG', 'TODAY') : tmrw ? L('Á MORGUN', 'TMRW') : (lang === 'en' ? DOW_EN : DOW_IS)[d.getDay()];
-  const money = [priceStr(e) && '💰 ' + priceStr(e), e.door && '🚪 ' + L('við hurð', 'at the door'), ageStr(e) && '🔞 ' + ageStr(e)].filter(Boolean);
+  const meta = ['📍 ' + placeLabel(p), priceStr(e) && '💰 ' + priceStr(e), e.door && '🚪 ' + L('við hurð', 'at the door'), ageStr(e) && '🔞 ' + ageStr(e)].filter(Boolean);
+  // Dagurinn stendur í fyrirsögn yfir hópnum; hér bara tíminn. Staður, verð og aldur í einni línu
+  // (hver hluti brotnar ekki í sundur). Merkin sjást þegar viðburður er opnaður.
   return `<button class="ev2 ${e.cancelled ? 'cx' : ''}" data-ev="${e.id}">
-    <span class="when ${today ? 'today' : ''}"><span class="dow">${dow}</span><span class="dm">${esc(fmtShort(e.date))}</span><span class="tm">${esc(e.time)}</span></span>
+    <span class="when"><span class="tm">${esc(e.time)}</span></span>
     <span class="body">
       <span class="ti">${e.cancelled ? `<span class="cxl">${L('AFLÝST', 'CANCELLED')}</span> ` : ''}${esc(e.title)}</span>
-      <span class="ln">📍 ${esc(placeLabel(p))}</span>
-      ${money.length ? `<span class="ln">${money.map(esc).join(' &nbsp;·&nbsp; ')}</span>` : ''}
+      <span class="ln">${meta.map((x) => `<span class="nw">${esc(x)}</span>`).join(' · ')}</span>
       ${e.time_changed ? `<span class="ln chg">🕘 ${L('Breyttur tími', 'Time changed')}</span>` : ''}
-      <span class="tags">${tagStr(e).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}${e.fam ? `<span class="tag">👨‍👩‍👧 ${L('Fjölskylduvænt', 'Family')}</span>` : ''}</span>
     </span>
     ${e.poster ? `<img src="${posterUrl(e.poster)}" alt="" loading="lazy">` : ''}</button>`;
 }
+function dayLabel(d) {
+  if (d === iso(TODAY)) return [L('Í dag', 'Today'), fmtLong(d)];
+  if (d === iso(addDays(TODAY, 1))) return [L('Á morgun', 'Tomorrow'), fmtLong(d)];
+  const s = fmtLong(d);
+  return [s.charAt(0).toUpperCase() + s.slice(1), ''];
+}
 /* ---------- Auglýsingar (prufa: bull) ----------
-   Reglur: mest 1 auglýsing á hverja 6 viðburði, alltaf merkt, engir sprettigluggar, engar áfengisauglýsingar. */
+   Eins og í prufusíðunni: heillitir borðar í listanum á 5 viðburða fresti, auglýsing undir síunni (300×250)
+   og lítil í viðburðarglugganum. Alltaf merkt, engir sprettigluggar, engar áfengisauglýsingar (0% bjór í lagi). */
 const ADS = [
-  { e: '🥫', t: 'Heiðars Remúlaði', d: 'Á pylsuna. Á fiskinn. Á allt. Heiðar mælir með.', c: '#c9a227' },
-  { e: '🍗', t: 'Hafnarbúðin', d: 'Kjúlli Fús og Coke Zero – aðeins 3.000 kr.', c: '#d9603b' },
-  { e: '🚗', t: 'Bílaþvottur Bjössa', d: 'Við þvoum bílinn. Og hundinn ef þú biður fallega.', c: '#3b8fd9' },
-  { e: '🧶', t: 'Prjónastofan Lopi', d: 'Lopapeysur á alla hljómsveitina. Afsláttur fyrir trommara.', c: '#7fa65a' },
-  { e: '🎸', t: 'Gítarviðgerðir Gunnu', d: 'Slitinn strengur? Brotinn háls? Gunna lagar allt nema lagið.', c: '#a0522d' },
-  { e: '🚌', t: 'Rútur Fúsa', d: 'Á ballið og heim aftur. Fúsi syngur ekki á leiðinni (lofað).', c: '#8e6ad1' },
+  { e: '🥫', t: 'Heiðars Remúlaði', d: 'Á pylsuna. Á franskarnar. Á allt.', bg: '#7a5a12', fg: '#fff4d6' },
+  { e: '🍺', t: 'Núlli Fús', d: '0% bjór. 100% Fús.', bg: '#1f3b4d', fg: '#e3f2ff' },
+  { e: '🍗', t: 'Hafnarbúðin', d: 'Kjúlli Fús og Coke Zero · 3.000 kr.', bg: '#6b2318', fg: '#ffe6dc' },
+  { e: '🚗', t: 'Bílaþvottur Bjössa', d: 'Við þvoum bílinn. Og hundinn ef þú biður fallega.', bg: '#1d4a3a', fg: '#dcf5ea' },
+  { e: '🧶', t: 'Prjónastofan Lopi', d: 'Lopapeysur á alla hljómsveitina. Afsláttur fyrir trommara.', bg: '#4a2d5c', fg: '#f1e3fa' },
+  { e: '🎸', t: 'Gítarviðgerðir Gunnu', d: 'Slitinn strengur? Brotinn háls? Gunna lagar allt nema lagið.', bg: '#5c3a1e', fg: '#fbe8d6' },
 ];
 let adStart = Math.floor(Math.random() * ADS.length);
-function adCard(i) {
+function adHtml(i, kind) {
   const a = ADS[(adStart + i) % ADS.length];
-  return `<div class="adcard" style="--ac:${a.c}"><span class="adtag">${L('Auglýsing', 'Ad')}</span><span class="adem">${a.e}</span><span class="adbody"><b>${esc(a.t)}</b><span>${esc(a.d)}</span></span></div>`;
+  return `<div class="ad ${kind || ''}" style="background:${a.bg};color:${a.fg}"><span class="adl">${L('Auglýsing', 'Ad')}</span><div class="art">${a.e}</div><div><div class="h">${esc(a.t)}</div><div class="s">${esc(a.d)}</div></div></div>`;
 }
-function renderBigAd() {
-  const el = $('adBig');
-  if (!el) return;
-  el.innerHTML = `<span class="adtag">${L('Auglýsing', 'Ad')}</span>
-    <div class="adbig-in"><div class="bigem">🥫</div><div class="bigt">HEIÐARS<br>REMÚLAÐI</div><div class="bigd">Á pylsuna.<br>Á fiskinn.<br>Á allt.</div>
-    <div class="bigbadge">NÚ Í 1 LÍTRA<br>BRÚSA!</div><div class="bigf">Heiðar mælir með.</div></div>`;
-}
+function renderSideAd() { const el = $('adSide'); if (el) el.innerHTML = adHtml(ADS.length - 1, 'box'); }
 function renderList() {
   const list = visibleEvents();
-  let ai = 0;
-  $('list').innerHTML = list.map((e, i) => evRow(e) + ((i + 1) % 6 === 0 && i + 1 < list.length ? adCard(ai++) : '')).join('') || `<div class="empty">${L('Engir viðburðir fundust.', 'No events found.')}${F.inView || F.placeId || F.sel || F.q ? '' : '<br>' + L('Vertu fyrst(ur) til að setja inn viðburð!', 'Be the first to post an event!')}</div>`;
+  // Hópað eftir dögum; fyrirsögn dagsins festist efst þar til næsti dagur ýtir henni upp.
+  let html = '', day = null, ai = 0;
+  list.forEach((e, i) => {
+    if (e.date !== day) {
+      if (day !== null) html += '</section>';
+      day = e.date;
+      const [a, b] = dayLabel(day);
+      html += `<section class="day"><h3 class="dh ${day === iso(TODAY) ? 'today' : ''}">${esc(a)}${b ? ` <small>${esc(b)}</small>` : ''}</h3>`;
+    }
+    html += evRow(e);
+    if ((i + 1) % 5 === 0 && i + 1 < list.length) html += adHtml(ai++);
+  });
+  if (day !== null) html += '</section>';
+  $('list').innerHTML = html || `<div class="empty">${L('Engir viðburðir fundust.', 'No events found.')}${F.inView || F.placeId || F.sel || F.q ? '' : '<br>' + L('Vertu fyrst(ur) til að setja inn viðburð!', 'Be the first to post an event!')}</div>`;
   $('list').querySelectorAll('[data-ev]').forEach((b) => (b.onclick = () => openEvent(b.dataset.ev)));
   const n = list.length;
   const where = F.region ? regionName(F.region) : L('öllu landinu', 'all of Iceland');
@@ -793,7 +806,8 @@ function eventDetailHtml(e) {
    ${e.descr ? `<p style="white-space:pre-wrap">${esc(e.descr)}</p>` : ''}
    <div class="row">${e.ticket ? `<a class="btn primary" href="${esc(e.ticket)}" target="_blank" rel="noopener">🎟️ ${L('Kaupa miða', 'Buy tickets')}</a>` : ''}
     <button class="btn" data-share>🔗 ${L('Afrita hlekk', 'Copy link')}</button>
-    ${p.lat ? `<button class="btn" data-onmap>🗺️ ${L('Sýna á korti', 'Show on map')}</button>` : ''}</div>`;
+    ${p.lat ? `<button class="btn" data-onmap>🗺️ ${L('Sýna á korti', 'Show on map')}</button>` : ''}</div>
+   ${adHtml(String(e.id).length + String(e.title).length, 'small')}`;
 }
 async function openEvent(id) {
   let e = EVENTS.find((x) => x.id === id);
@@ -872,6 +886,10 @@ async function showMine() {
   await renderMine();
 }
 $('mineBtn').onclick = showMine;
+// Hæð hausins (fyrir fastar dagsfyrirsagnir og hæð síðunnar í tölvu).
+function setHH() { document.documentElement.style.setProperty('--hh', document.querySelector('header').offsetHeight + 'px'); }
+setHH(); addEventListener('resize', setHH);
+if (window.ResizeObserver) new ResizeObserver(setHH).observe(document.querySelector('header'));
 $('fbLink').onclick = () => { store.set('goFeedback', 1); showMine(); };
 $('logo').onclick = () => { showPublic(); if (isMobile()) showHome(); };
 
@@ -1463,7 +1481,7 @@ function applyLang() {
   document.body.classList.add('m-list');
   try { await loadAll(); } catch (e) { $('list').innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   renderAll();
-  renderBigAd();
+  renderSideAd();
   initMap();
   loadMe();
   const sp = new URLSearchParams(location.search);
