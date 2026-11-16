@@ -165,28 +165,43 @@ const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<"
 
 /* ---------------- Lykilorð (falin síða á meðan prófað er) ---------------- */
 
-async function gateOk(req, env) {
+// Aðgangsmiði að falinni síðu: geymdur bæði í kökunni „gate“ og (fyrir vafra eins og Arc Search
+// sem halda ekki kökum) í localStorage, sendur sem hausinn X-Gate eða ?g= í slóð.
+const normPw = (s) => String(s || "").normalize("NFC").trim();
+const gateToken = (env) => sha256("gate:" + normPw(env.SITE_PASSWORD));
+async function gateOk(req, env, url) {
   if (!env.SITE_PASSWORD) return true;
-  const c = getCookie(req, "gate");
-  return !!c && c === (await sha256("gate:" + env.SITE_PASSWORD));
+  const tok = await gateToken(env);
+  return [getCookie(req, "gate"), req.headers.get("X-Gate"), url.searchParams.get("g")].some((v) => v && v === tok);
 }
 function gatePage(env, wrong) {
   const html = `<!doctype html><html lang="is"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Viðburðir</title>
-<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#1d1214;color:#f2e2dc;font:18px/1.5 system-ui,sans-serif}
-form{background:#2c1a1d;border:1px solid #4d2f33;border-radius:18px;padding:28px;width:min(92vw,360px)}
-h1{font:800 26px Georgia,serif;margin:0 0 6px}p{color:#b9958d;margin:0 0 16px}
-input,button{font:inherit;width:100%;box-sizing:border-box;border-radius:12px;padding:12px 14px}
-input{background:#1d1214;color:inherit;border:1px solid #4d2f33;margin-bottom:12px}
-button{background:#de8a5a;color:#2a1208;border:0;font-weight:700;cursor:pointer}.w{color:#e98a8a}</style></head>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#1d1214;color:#f2e2dc;font:19px/1.5 system-ui,sans-serif}
+form{background:#2c1a1d;border:1px solid #4d2f33;border-radius:18px;padding:28px;width:min(92vw,380px);box-sizing:border-box}
+h1{font:800 28px Georgia,serif;margin:0 0 6px}p{color:#d9c2bb;margin:0 0 16px}
+.pw{position:relative;margin-bottom:14px}
+input,button{font:inherit;width:100%;box-sizing:border-box;border-radius:12px;padding:14px 16px}
+input{background:#1d1214;color:inherit;border:2px solid #4d2f33;padding-right:64px}
+.eye{position:absolute;right:6px;top:6px;bottom:6px;width:auto;padding:0 12px;background:#3a2226;color:#f2e2dc;border:0;font-size:15px}
+.go{background:#de8a5a;color:#2a1208;border:0;font-weight:800;cursor:pointer;font-size:20px}
+.w{background:#5a1f22;border:2px solid #e98a8a;color:#fff;border-radius:12px;padding:12px 14px;font-weight:700;margin-bottom:14px}</style></head>
 <body><form method="post" action="${env.BASE_PATH}/api/gate"><h1>Viðburðir</h1><p>Síðan er í prófun. Sláðu inn lykilorðið.</p>
-${wrong ? '<p class="w">Rangt lykilorð.</p>' : ""}<input type="password" name="password" autofocus autocomplete="current-password" placeholder="Lykilorð"><button>Opna síðuna</button></form></body></html>`;
+${wrong ? '<div class="w">❌ Lykilorðið passar ekki. Prófaðu aftur – smelltu á „Sýna“ til að sjá hvað þú skrifaðir.</div>' : ""}
+<div class="pw"><input type="password" name="password" id="pw" autofocus autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Lykilorð"><button type="button" class="eye" id="eye">👁️ Sýna</button></div>
+<button class="go">Opna síðuna</button></form>
+<script>
+try{var mm=/[#&]s=([0-9a-f]{64})/.exec(location.hash);if(mm)localStorage.setItem('sidPending',mm[1]);
+var t=localStorage.getItem('gate');if(location.search.indexOf('g=')>=0){localStorage.removeItem('gate');}else if(t&&!${wrong ? "true" : "false"}){location.replace('${env.BASE_PATH}/?g='+encodeURIComponent(t)+(location.search?'&'+location.search.slice(1):''));}}catch(e){}
+var pw=document.getElementById('pw'),eye=document.getElementById('eye');
+eye.onclick=function(){var s=pw.type==='password';pw.type=s?'text':'password';eye.textContent=s?'🙈 Fela':'👁️ Sýna';pw.focus();};
+</script></body></html>`;
   return new Response(html, { status: 401, headers: headersBase({ "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }) });
 }
 
 /* ---------------- Innskráning ---------------- */
 
 async function currentUser(req, env) {
-  const sid = getCookie(req, "sid");
+  const sid = getCookie(req, "sid") || req.headers.get("X-Session");
   if (!sid) return null;
   const row = await env.DB.prepare(
     `SELECT u.id,u.email,u.name,u.is_owner FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.expires>?`
@@ -261,12 +276,12 @@ async function apiVerify(req, env, url) {
     .bind(await sha256(sid), user.id, now() + SESSION_DAYS * 86400_000).run();
   return new Response(null, {
     status: 302,
-    headers: headersBase({ Location: `${env.BASE_PATH}/?login=ok`, "Set-Cookie": cookie(env, "sid", sid, SESSION_DAYS * 86400) }),
+    headers: headersBase({ Location: `${env.BASE_PATH}/?login=ok#s=${sid}`, "Set-Cookie": cookie(env, "sid", sid, SESSION_DAYS * 86400) }),
   });
 }
 
 async function apiLogout(req, env) {
-  const sid = getCookie(req, "sid");
+  const sid = getCookie(req, "sid") || req.headers.get("X-Session");
   if (sid) await env.DB.prepare(`DELETE FROM sessions WHERE id=?`).bind(await sha256(sid)).run();
   return json({ ok: true }, 200, { "Set-Cookie": cookie(env, "sid", "", 0) });
 }
@@ -674,15 +689,18 @@ async function route(req, env, url, path) {
   const m = req.method;
   if (path === "/api/gate" && m === "POST") {
     const form = await req.formData().catch(() => null);
-    const pw = form ? String(form.get("password") || "") : "";
-    if (!env.SITE_PASSWORD || pw !== env.SITE_PASSWORD) return gatePage(env, true);
-    return new Response(null, {
-      status: 302,
-      headers: headersBase({ Location: env.BASE_PATH + "/", "Set-Cookie": cookie(env, "gate", await sha256("gate:" + env.SITE_PASSWORD), 365 * 86400) }),
-    });
+    const pw = normPw(form ? form.get("password") : "");
+    if (!env.SITE_PASSWORD || pw !== normPw(env.SITE_PASSWORD)) return gatePage(env, true);
+    const tok = await gateToken(env);
+    // Kakan + miðinn í localStorage (svo þetta virki líka í vöfrum sem gleyma kökum).
+    const html = `<!doctype html><meta charset="utf-8"><script>try{localStorage.setItem('gate',${JSON.stringify(tok)})}catch(e){}location.replace(${JSON.stringify(env.BASE_PATH + "/?g=" + tok)});</script>`;
+    return new Response(html, { status: 200, headers: headersBase({ "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Set-Cookie": cookie(env, "gate", tok, 365 * 86400) }) });
   }
 
-  if (!(await gateOk(req, env))) return path.startsWith("/api/") ? err("Lykilorð vantar.", 401) : gatePage(env, false);
+  // Bara síðan sjálf (HTML) og gögnin (/api) eru læst; myndir, stílar og kortagögn ekki.
+  const isPage = path === "/" || path === "/index.html";
+  // Innskráningarhlekkurinn sannar sig sjálfur, svo hann þarf ekki lykilorðsmiðann.
+  if ((isPage || (path.startsWith("/api/") && path !== "/api/verify")) && !(await gateOk(req, env, url))) return path.startsWith("/api/") ? err("Lykilorð vantar.", 401) : gatePage(env, false);
 
   if (!path.startsWith("/api/")) {
     // Skrár síðunnar (public/event/...).

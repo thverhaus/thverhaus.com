@@ -57,6 +57,9 @@ const posterUrl = (k) => (k ? `${API}/poster/${k}` : '');
 /* ---------- Netsamskipti ---------- */
 async function api(path, opts = {}) {
   const o = { method: opts.method || 'GET', headers: {}, credentials: 'same-origin' };
+  // Fyrir vafra sem gleyma kökum (t.d. Arc Search): aðgangsmiði og innskráning líka í hausum.
+  const g = store.get('gateTok', null) || (() => { try { return localStorage.getItem('gate'); } catch { return null; } })(); if (g) o.headers['X-Gate'] = g;
+  const sid = store.get('sid', null); if (sid) o.headers['X-Session'] = sid;
   if (opts.body !== undefined) {
     if (opts.body instanceof Blob) { o.body = opts.body; o.headers['Content-Type'] = opts.body.type; }
     else { o.body = JSON.stringify(opts.body); o.headers['Content-Type'] = 'application/json'; }
@@ -84,9 +87,10 @@ let PLACES = [];       // staðir úr gagnagrunni
 let PLACE = {};        // id -> staður
 let EVENTS = [];
 let ME = null;         // {user,pages,pending}
-const F = { quick: 'all', from: null, to: null, q: '', placeId: null, inView: false, sel: null };
+const F = { quick: 'all', from: null, to: null, q: '', placeId: null, inView: false, sel: null, region: null };
 const SF = (() => { const v = store.get('filters2', {}); return { tags: new Set(v.tags || []), genres: new Set(v.genres || []), fam: !!v.fam, free: !!v.free, gOpen: false }; })();
 const saveSF = () => store.set('filters2', { tags: [...SF.tags], genres: [...SF.genres], fam: SF.fam, free: SF.free });
+const regionMatch = (e) => !F.region || (PLACE[e.place_id] && PLACE[e.place_id].region === F.region);
 function typeMatch(e) {
   if (SF.fam && !e.fam) return false;
   if (SF.free && e.price !== 0) return false;
@@ -207,9 +211,11 @@ function renderDateChips() {
   $('dateChips').innerHTML = chips.map(([k, t]) => `<span class="chip ${F.quick === k ? 'on' : ''}" data-q="${k}">${t}</span>`).join('') +
     `<span class="chip ${F.quick === 'pick' ? 'on' : ''}" data-q="pick">${esc(pick)}</span>` +
     `<span class="chip fbtn" data-q="filters">🎛️ ${L('Sía', 'Filter')}</span>` +
+    (F.region && !isMobile() ? `<span class="chip on" data-q="clearregion">📍 ${esc(regionName(F.region))} ✕</span>` : '') +
     (F.sel ? `<span class="chip on" data-q="clearplace">📍 ${esc(F.sel.label)} ✕</span>` : F.placeId && PLACE[F.placeId] ? `<span class="chip on" data-q="clearplace">📍 ${esc(PLACE[F.placeId].name)} ✕</span>` : '');
   $('dateChips').querySelectorAll('[data-q]').forEach((c) => (c.onclick = () => {
     const q = c.dataset.q;
+    if (q === 'clearregion') { F.region = null; store.set('region', null); fitIceland(); renderAll(); return; }
     if (q === 'clearplace') { F.placeId = null; F.sel = null; renderAll(); return; }
     if (q === 'filters') { $('filters').classList.toggle('open'); return; }
     if (q === 'pick') {
@@ -226,7 +232,7 @@ function renderDateChips() {
 function norm(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ð/g, 'd').replace(/þ/g, 'th').replace(/æ/g, 'ae').replace(/ö/g, 'o').replace(/[,.\-–]/g, ' ').replace(/\s+/g, ' ').trim(); }
 function eventsInDates() {
   const [a, b] = dateRange();
-  return EVENTS.filter((e) => e.date >= a && e.date <= b && typeMatch(e));
+  return EVENTS.filter((e) => e.date >= a && e.date <= b && typeMatch(e) && regionMatch(e));
 }
 function textMatch(e, q) {
   const p = PLACE[e.place_id] || {};
@@ -246,32 +252,37 @@ function visibleEvents() {
 }
 
 /* ---------- Listinn ---------- */
+const DOW_IS = ['SUN', 'MÁN', 'ÞRI', 'MIÐ', 'FIM', 'FÖS', 'LAU'], DOW_EN = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 function evRow(e) {
   const p = PLACE[e.place_id] || {};
-  return `<button class="ev ${e.cancelled ? 'cx' : ''}" data-ev="${e.id}">
-    ${e.poster ? `<img src="${posterUrl(e.poster)}" alt="" loading="lazy">` : `<span class="t">${esc(e.time)}</span>`}
-    <span><span class="ti">${e.cancelled ? `<span class="cxl">${L('AFLÝST', 'CANCELLED')}</span>` : ''}${esc(e.title)}</span><br>
-      <span class="sub">${e.poster ? `<b>${esc(e.time)}</b> · ` : ''}${esc(placeLabel(p))}${e.time_changed ? ` · <span class="chg">${L('Breyttur tími', 'Time changed')}</span>` : ''}</span><br>
-      ${tagStr(e).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}${e.fam ? `<span class="tag">👨‍👩‍👧 ${L('Fjölskylduvænt', 'Family friendly')}</span>` : ''}</span>
-    <span class="pr">${esc(priceStr(e))}${ageStr(e) ? '<br>' + esc(ageStr(e)) : ''}</span></button>`;
+  const d = parseISO(e.date);
+  const today = e.date === iso(TODAY), tmrw = e.date === iso(addDays(TODAY, 1));
+  const dow = today ? L('Í DAG', 'TODAY') : tmrw ? L('Á MORGUN', 'TMRW') : (lang === 'en' ? DOW_EN : DOW_IS)[d.getDay()];
+  const money = [priceStr(e) && '💰 ' + priceStr(e), e.door && '🚪 ' + L('við hurð', 'at the door'), ageStr(e) && '🔞 ' + ageStr(e)].filter(Boolean);
+  return `<button class="ev2 ${e.cancelled ? 'cx' : ''}" data-ev="${e.id}">
+    <span class="when ${today ? 'today' : ''}"><span class="dow">${dow}</span><span class="dm">${esc(fmtShort(e.date))}</span><span class="tm">${esc(e.time)}</span></span>
+    <span class="body">
+      <span class="ti">${e.cancelled ? `<span class="cxl">${L('AFLÝST', 'CANCELLED')}</span> ` : ''}${esc(e.title)}</span>
+      <span class="ln">📍 ${esc(placeLabel(p))}</span>
+      ${money.length ? `<span class="ln">${money.map(esc).join(' &nbsp;·&nbsp; ')}</span>` : ''}
+      ${e.time_changed ? `<span class="ln chg">🕘 ${L('Breyttur tími', 'Time changed')}</span>` : ''}
+      <span class="tags">${tagStr(e).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}${e.fam ? `<span class="tag">👨‍👩‍👧 ${L('Fjölskylduvænt', 'Family')}</span>` : ''}</span>
+    </span>
+    ${e.poster ? `<img src="${posterUrl(e.poster)}" alt="" loading="lazy">` : ''}</button>`;
 }
 function renderList() {
   const list = visibleEvents();
-  let html = '', day = '';
-  for (const e of list) {
-    if (e.date !== day) { day = e.date; html += `<div class="dayh">${esc(fmtLong(day))}</div>`; }
-    html += evRow(e);
-  }
-  $('list').innerHTML = html || `<div class="empty">${L('Engir viðburðir fundust.', 'No events found.')}${F.inView || F.placeId || F.sel || F.q ? '' : '<br>' + L('Vertu fyrst(ur) til að setja inn viðburð!', 'Be the first to post an event!')}</div>`;
+  $('list').innerHTML = list.map(evRow).join('') || `<div class="empty">${L('Engir viðburðir fundust.', 'No events found.')}${F.inView || F.placeId || F.sel || F.q ? '' : '<br>' + L('Vertu fyrst(ur) til að setja inn viðburð!', 'Be the first to post an event!')}</div>`;
   $('list').querySelectorAll('[data-ev]').forEach((b) => (b.onclick = () => openEvent(b.dataset.ev)));
   const n = list.length;
+  const where = F.region ? regionName(F.region) : L('öllu landinu', 'all of Iceland');
   $('listInfo').textContent = F.sel ? `${n} ${L('viðburðir', 'events')}: ${F.sel.label}` : F.placeId ? `${n} ${L('viðburðir á', 'events at')} ${PLACE[F.placeId]?.name || ''}`
-    : F.inView ? `${n} ${L('viðburðir á svæðinu sem sést á kortinu', 'events in the map area')}` : `${n} ${L('viðburðir á öllu landinu', 'events in all of Iceland')}`;
+    : F.inView ? `${n} ${L('viðburðir á svæðinu sem sést á kortinu', 'events in the map area')}` : `${n} ${L('viðburðir', 'events')}: ${where}`;
   const showAll = $('showAll');
   showAll.classList.toggle('hidden', !(F.inView || F.placeId || F.sel));
-  showAll.textContent = L('Sýna allt landið', 'Show all of Iceland');
+  showAll.textContent = F.region ? L('Sýna allt svæðið', 'Show whole region') : L('Sýna allt landið', 'Show all of Iceland');
 }
-$('showAll').onclick = () => { F.placeId = null; F.sel = null; F.inView = false; fitIceland(); renderAll(); };
+$('showAll').onclick = () => { F.placeId = null; F.sel = null; F.inView = false; F.region ? fitArea('region', F.region, true) : fitIceland(); renderAll(); };
 
 function renderRegions() {
   const counts = {};
@@ -281,7 +292,7 @@ function renderRegions() {
 }
 
 function renderFilters() {
-  const inDates = (() => { const [a, b] = dateRange(); return EVENTS.filter((e) => e.date >= a && e.date <= b); })();
+  const inDates = (() => { const [a, b] = dateRange(); return EVENTS.filter((e) => e.date >= a && e.date <= b && regionMatch(e)); })();
   const cT = {}, cG = {};
   for (const e of inDates) { (e.tags || []).forEach((t) => (cT[t] = (cT[t] || 0) + 1)); (e.genres || []).forEach((g) => (cG[g] = (cG[g] || 0) + 1)); }
   const cb = (k, v, label, n, on, sub) => `<label class="cbx ${sub ? 'sub' : ''}"><input type="checkbox" data-${k}="${v}" ${on ? 'checked' : ''}><span>${label}</span><small>${n ?? ''}</small></label>`;
@@ -315,7 +326,7 @@ function renderFilters() {
   R.querySelector('[data-ffree]').onchange = (ev) => { SF.free = ev.target.checked; saveSF(); renderAll(); };
   const gt = $('gToggle'); if (gt) gt.onclick = () => { SF.gOpen = !(SF.gOpen || SF.genres.size); if (!SF.gOpen) { SF.genres.clear(); saveSF(); } renderAll(); };
 }
-function renderAll() { renderDateChips(); renderFilters(); renderRegions(); renderList(); updateMapData(); }
+function renderAll() { renderDateChips(); renderFilters(); renderRegions(); renderList(); updateMapData(); if (isMobile()) renderMobileBars(); }
 
 /* ---------- Kortið ---------- */
 const ICELAND = [[-24.6, 63.25], [-13.4, 66.6]];
@@ -392,10 +403,10 @@ function bboxOf(geom) {
   return [[a, b], [c, d]];
 }
 function fitIceland() { if (map) map.fitBounds(ICELAND, { padding: 40, animate: false }); }
-function fitArea(kind, id) {
+function fitArea(kind, id, keepView) {
   const f = AREAS.features.find((x) => x.properties.kind === kind && x.properties.id === id);
   if (!f || !map) return;
-  F.placeId = null; F.sel = null; F.inView = true;
+  F.placeId = null; F.sel = null; F.inView = !keepView;
   map.fitBounds(bboxOf(f.geometry), { padding: 30, maxZoom: 11 });
 }
 function pointsGeo(withEvents) {
@@ -424,8 +435,8 @@ async function initMap() {
     maxBounds: [[-45, 55], [8, 73]], dragRotate: false, pitchWithRotate: false, attributionControl: { compact: true },
   });
   map.touchZoomRotate.disableRotation();
-  map.once('load', () => fitIceland());
-  new ResizeObserver(() => { map.resize(); if (!F.inView && !F.placeId && !F.sel) fitIceland(); }).observe($('map'));
+  map.once('load', () => (F.region ? fitArea('region', F.region, true) : fitIceland()));
+  new ResizeObserver(() => { map.resize(); if (!F.inView && !F.placeId && !F.sel) (F.region ? fitArea('region', F.region, true) : fitIceland()); }).observe($('map'));
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
   map.addControl(new ThemeControl(), 'top-left');
   let wired = false;
@@ -668,7 +679,7 @@ async function showMine() {
   await renderMine();
 }
 $('mineBtn').onclick = showMine;
-$('logo').onclick = () => { showPublic(); };
+$('logo').onclick = () => { showPublic(); if (isMobile()) showHome(); };
 
 async function renderMine() {
   const root = $('mineView');
@@ -713,7 +724,7 @@ async function renderMine() {
   </div>`;
 
   $('backBtn').onclick = showPublic;
-  $('logoutBtn').onclick = async () => { await api('/logout', { method: 'POST' }); ME = null; await renderMine(); };
+  $('logoutBtn').onclick = async () => { await api('/logout', { method: 'POST' }); store.set('sid', null); ME = null; await renderMine(); };
   const ne = $('newEv'); if (ne) ne.onclick = () => openEventForm(null);
   $('joinForm').onsubmit = async (ev) => {
     ev.preventDefault();
@@ -1130,6 +1141,64 @@ async function openPlaceForm(place, done) {
   };
 }
 
+/* ---------- Sími: „Hvað langar þig að gera?“ ---------- */
+const isMobile = () => matchMedia('(max-width: 899px)').matches;
+const ICON = { tonlist: '🎸', leikhus: '🎭', uppistand: '😂', pubquiz: '🧠', list: '🎨', annad: '✨' };
+const SUBICON = { tonleikar: '🎤', ball: '💃', dj: '🎧', trubador: '🪕', tonlist_annad: '🎶', leiksyning: '🎭', songleikur: '🎶', barnaleikrit: '🧸', dans: '🩰', leikhus_annad: '🎟️' };
+function flow(html) {
+  const el = $('mflow'); el.innerHTML = html; el.classList.remove('hidden'); el.scrollTop = 0;
+  document.body.classList.add('m-flow');
+  return el;
+}
+function closeFlow() { $('mflow').classList.add('hidden'); document.body.classList.remove('m-flow'); }
+function showHome() {
+  const el = flow(`<div class="mf"><h1>${L('Hvað langar þig að gera?', 'What do you feel like doing?')}</h1>
+    <div class="tiles">${TOPS.map((t) => `<button class="tile" data-c="${t}"><span class="ic">${ICON[t]}</span>${esc(TAGL[lang][t])}</button>`).join('')}</div>
+    <button class="btn primary big" data-c="all">${L('Sýna mér allt', 'Show me everything')} →</button></div>`);
+  el.querySelectorAll('[data-c]').forEach((b) => (b.onclick = () => {
+    const c = b.dataset.c;
+    SF.tags.clear(); SF.genres.clear(); if (c !== 'all') SF.tags.add(c); saveSF();
+    if (SUBS[c]) showSub(c); else goWhere();
+  }));
+}
+function showSub(top) {
+  const el = flow(`<div class="mf"><button class="back" data-back>← ${L('Til baka', 'Back')}</button><h1>${ICON[top]} ${esc(TAGL[lang][top])}</h1>
+    <button class="btn primary big" data-s="">${L('Allt', 'Everything')} (${esc(TAGL[lang][top]).toLowerCase()})</button>
+    <div class="tiles">${SUBS[top].map((x) => `<button class="tile" data-s="${x}"><span class="ic">${SUBICON[x]}</span>${esc(TAGL[lang][x])}</button>`).join('')}</div></div>`);
+  el.querySelector('[data-back]').onclick = showHome;
+  el.querySelectorAll('[data-s]').forEach((b) => (b.onclick = () => { if (b.dataset.s) SF.tags.add(b.dataset.s); saveSF(); goWhere(); }));
+}
+function goWhere() { const r = store.get('region', undefined); if (r === undefined) showWhere(); else showResults(r); }
+function showWhere() {
+  const el = flow(`<div class="mf"><button class="back" data-back>← ${L('Til baka', 'Back')}</button><h1>📍 ${L('Hvar?', 'Where?')}</h1>
+    <button class="btn primary big" data-r="">${L('Allt landið', 'All of Iceland')}</button>
+    <div class="tiles">${GEO.regions.map((r) => `<button class="tile sm" data-r="${r.id}">${esc(L(r.n, r.en))}</button>`).join('')}</div></div>`);
+  el.querySelector('[data-back]').onclick = showHome;
+  el.querySelectorAll('[data-r]').forEach((b) => (b.onclick = () => { const r = b.dataset.r || null; store.set('region', r); showResults(r); }));
+}
+function showResults(region) {
+  closeFlow();
+  F.region = region || null; F.placeId = null; F.sel = null; F.inView = false;
+  setMView('list');
+  renderAll();
+  if (map) F.region ? fitArea('region', F.region, true) : fitIceland();
+}
+function setMView(v) { document.body.classList.toggle('m-map', v === 'map'); document.body.classList.toggle('m-list', v !== 'map'); renderMobileBars(); if (v === 'map' && map) setTimeout(() => map.resize(), 50); }
+function renderMobileBars() {
+  const what = SF.tags.size ? [...SF.tags].filter((t) => !PARENT[t] || true).map((t) => TAGL[lang][t]).filter(Boolean).slice(0, 2).join(' · ') : L('Allt', 'Everything');
+  $('mbar').innerHTML = `<button class="chip" data-m="home">← ${L('Byrja', 'Start')}</button>
+    <button class="chip on" data-m="home">${esc(what)}</button>
+    <button class="chip on" data-m="where">📍 ${esc(F.region ? regionName(F.region) : L('Allt landið', 'All of Iceland'))} ▾</button>`;
+  $('mbar').querySelectorAll('[data-m]').forEach((b) => (b.onclick = () => (b.dataset.m === 'home' ? showHome() : showWhere())));
+  const isMap = document.body.classList.contains('m-map');
+  const active = SF.tags.size + (SF.fam ? 1 : 0) + (SF.free ? 1 : 0);
+  $('mtoggle').innerHTML = `<button class="${!isMap ? 'on' : ''}" data-v="list">📋 ${L('Listi', 'List')}</button><button class="${isMap ? 'on' : ''}" data-v="map">🗺️ ${L('Kort', 'Map')}</button><button data-v="filter">🎛️ ${L('Sía', 'Filter')}${active ? ` (${active})` : ''}</button>`;
+  $('mtoggle').querySelectorAll('[data-v]').forEach((b) => (b.onclick = () => {
+    if (b.dataset.v === 'filter') { $('filters').classList.toggle('open'); return; }
+    $('filters').classList.remove('open'); setMView(b.dataset.v);
+  }));
+}
+
 /* ---------- Tungumál ---------- */
 $('langBtn').onclick = () => { lang = lang === 'is' ? 'en' : 'is'; store.set('lang', lang); applyLang(); renderAll(); };
 function applyLang() {
@@ -1141,8 +1210,16 @@ function applyLang() {
 
 /* ---------- Ræsing ---------- */
 (async function start() {
+  // Aðgangsmiði (?g=) og innskráning (#s=) geymd fyrir vafra sem gleyma kökum.
+  { const u = new URL(location.href); const g = u.searchParams.get('g');
+    if (g) { store.set('gateTok', g); u.searchParams.delete('g'); }
+    const m = /[#&]s=([0-9a-f]{64})/.exec(u.hash); if (m) { store.set('sid', m[1]); u.hash = ''; }
+    try { const pend = localStorage.getItem('sidPending'); if (pend) { store.set('sid', pend); localStorage.removeItem('sidPending'); } } catch {}
+    history.replaceState(null, '', u.pathname + u.search); }
   applyLang();
   wireSearch();
+  F.region = isMobile() ? store.get('region', null) || null : null;
+  document.body.classList.add('m-list');
   try { await loadAll(); } catch (e) { $('list').innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   renderAll();
   initMap();
@@ -1155,4 +1232,5 @@ function applyLang() {
     else toast(lg === 'utrunnid' ? 'Hlekkurinn er útrunninn eða búið að nota hann. Biddu um nýjan.' : 'Innskráning tókst ekki.', true);
   }
   if (sp.get('e')) openEvent(sp.get('e'));
+  else if (isMobile() && !lg) showHome();
 })();
