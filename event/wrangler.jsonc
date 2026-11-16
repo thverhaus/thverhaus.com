@@ -1,0 +1,31 @@
+// Viðburðasíðan – sér Worker, aðskilinn frá thverhaus.com (Mulehead).
+// Birt tímabundið á thverhaus.com/event. Þegar opinbert lén er ákveðið:
+// breyta "routes" og "BASE_URL"/"MAIL_FROM" hér – annað þarf ekki að breyta.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vidburdir",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    { "pattern": "thverhaus.com/event*", "zone_name": "thverhaus.com" }
+  ],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  // Búið til sjálfkrafa við fyrstu uppsetningu (wrangler auto-provisioning).
+  "d1_databases": [{ "binding": "DB", "database_name": "vidburdir-db" }],
+  "r2_buckets": [{ "binding": "POSTERS", "bucket_name": "vidburdir-plakot" }],
+  "vars": {
+    "BASE_PATH": "/event",
+    "BASE_URL": "https://thverhaus.com",
+    "MAIL_FROM": "Viðburðir <event@thverhaus.com>"
+  }
+  // Leyndarmál (sett inn í Cloudflare, aldrei í kóða):
+  //   RESEND_API_KEY – lykill frá resend.com
+  //   SITE_PASSWORD  – lykilorð til að opna síðuna á meðan prófað er (tómt = opin)
+  //   OWNER_EMAIL    – netfang Júlíusar (eigandi síðunnar)
+}
