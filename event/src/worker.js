@@ -38,6 +38,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS trusts (venue_page_id TEXT NOT NULL, page_id TEXT NOT NULL, PRIMARY KEY (venue_page_id, page_id))`,
   `CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, place_id TEXT NOT NULL, page_id TEXT NOT NULL, title TEXT NOT NULL, date TEXT NOT NULL, time TEXT, end_time TEXT, price INTEGER, ticket TEXT, door INTEGER DEFAULT 0, age TEXT, age_text TEXT, tags TEXT, other_label TEXT, fam INTEGER DEFAULT 0, descr TEXT, poster TEXT, status TEXT NOT NULL, cancelled INTEGER DEFAULT 0, cancel_note TEXT, time_changed INTEGER DEFAULT 0, old_time TEXT, created_by TEXT, created INTEGER, updated INTEGER)`,
   `CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)`,
+  `CREATE TABLE IF NOT EXISTS feedback (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, anon INTEGER DEFAULT 0, text TEXT NOT NULL, seen INTEGER DEFAULT 0, created INTEGER)`,
   `CREATE INDEX IF NOT EXISTS ev_date ON events(date)`,
   `CREATE INDEX IF NOT EXISTS ev_place ON events(place_id)`,
   `CREATE INDEX IF NOT EXISTS ev_page ON events(page_id)`,
@@ -314,7 +315,33 @@ async function apiMe(req, env, user) {
     user: { id: user.id, email: user.email, name: user.name, owner: !!user.is_owner },
     pages: pages.map((p) => ({ ...p, code: p.role === "admin" || user.is_owner ? p.code : undefined })),
     pending: await pendingCount(env, user.id),
+    feedbackUnread: user.is_owner ? ((await env.DB.prepare(`SELECT COUNT(*) n FROM feedback WHERE seen=0`).first()) || {}).n || 0 : 0,
   });
+}
+
+/* ---------------- Athugasemdir prófara ---------------- */
+// Hver innskráður getur sent; aðeins eigandi sér. Nafnlaust = nafn og netfang ekki sýnt eiganda.
+async function apiSendFeedback(req, env, user) {
+  const b = (await readJson(req)) || {};
+  const text = String(b.text || "").trim().slice(0, 4000);
+  if (!text) return err("Skrifaðu eitthvað fyrst.");
+  const recent = await env.DB.prepare(`SELECT COUNT(*) n FROM feedback WHERE user_id=? AND created>?`).bind(user.id, now() - 3600e3).first();
+  if (recent && recent.n >= 20) return err("Of margar athugasemdir í bili. Reyndu aftur eftir smá stund.", 429);
+  await env.DB.prepare(`INSERT INTO feedback (id,user_id,anon,text,created) VALUES (?,?,?,?,?)`).bind(newId("f"), user.id, b.anon ? 1 : 0, text, now()).run();
+  return json({ ok: true });
+}
+async function apiListFeedback(req, env, user) {
+  if (!user.is_owner) return err("Aðeins eigandi.", 403);
+  const r = await env.DB.prepare(
+    `SELECT f.id,f.anon,f.text,f.seen,f.created,u.name,u.email FROM feedback f LEFT JOIN users u ON u.id=f.user_id ORDER BY f.created DESC LIMIT 500`
+  ).all();
+  return json({ items: r.results.map((x) => (x.anon ? { id: x.id, anon: 1, text: x.text, seen: x.seen, created: x.created } : x)) });
+}
+async function apiFeedbackAction(req, env, user, id, action) {
+  if (!user.is_owner) return err("Aðeins eigandi.", 403);
+  if (action === "delete") await env.DB.prepare(`DELETE FROM feedback WHERE id=?`).bind(id).run();
+  else await env.DB.prepare(`UPDATE feedback SET seen=? WHERE id=?`).bind(action === "seen" ? 1 : 0, id).run();
+  return json({ ok: true });
 }
 
 async function apiSetName(req, env, user) {
@@ -753,6 +780,9 @@ async function route(req, env, url, path) {
   if (path === "/api/requests" && m === "GET") return apiRequests(req, env, user);
   if ((mm = path.match(/^\/api\/requests\/([\w-]+)$/)) && m === "POST") return apiAnswerRequest(req, env, user, mm[1]);
   if (path === "/api/poster" && m === "POST") return apiUploadPoster(req, env, user);
+  if (path === "/api/feedback" && m === "POST") return apiSendFeedback(req, env, user);
+  if (path === "/api/feedback" && m === "GET") return apiListFeedback(req, env, user);
+  if ((mm = path.match(/^\/api\/feedback\/([\w-]+)\/(seen|unseen|delete)$/)) && m === "POST") return apiFeedbackAction(req, env, user, mm[1], mm[2]);
   return err("Fannst ekki.", 404);
 }
 

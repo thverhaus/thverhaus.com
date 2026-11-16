@@ -275,9 +275,32 @@ function evRow(e) {
     </span>
     ${e.poster ? `<img src="${posterUrl(e.poster)}" alt="" loading="lazy">` : ''}</button>`;
 }
+/* ---------- Auglýsingar (prufa: bull) ----------
+   Reglur: mest 1 auglýsing á hverja 6 viðburði, alltaf merkt, engir sprettigluggar, engar áfengisauglýsingar. */
+const ADS = [
+  { e: '🥫', t: 'Heiðars Remúlaði', d: 'Á pylsuna. Á fiskinn. Á allt. Heiðar mælir með.', c: '#c9a227' },
+  { e: '🍗', t: 'Hafnarbúðin', d: 'Kjúlli Fús og Coke Zero – aðeins 3.000 kr.', c: '#d9603b' },
+  { e: '🚗', t: 'Bílaþvottur Bjössa', d: 'Við þvoum bílinn. Og hundinn ef þú biður fallega.', c: '#3b8fd9' },
+  { e: '🧶', t: 'Prjónastofan Lopi', d: 'Lopapeysur á alla hljómsveitina. Afsláttur fyrir trommara.', c: '#7fa65a' },
+  { e: '🎸', t: 'Gítarviðgerðir Gunnu', d: 'Slitinn strengur? Brotinn háls? Gunna lagar allt nema lagið.', c: '#a0522d' },
+  { e: '🚌', t: 'Rútur Fúsa', d: 'Á ballið og heim aftur. Fúsi syngur ekki á leiðinni (lofað).', c: '#8e6ad1' },
+];
+let adStart = Math.floor(Math.random() * ADS.length);
+function adCard(i) {
+  const a = ADS[(adStart + i) % ADS.length];
+  return `<div class="adcard" style="--ac:${a.c}"><span class="adtag">${L('Auglýsing', 'Ad')}</span><span class="adem">${a.e}</span><span class="adbody"><b>${esc(a.t)}</b><span>${esc(a.d)}</span></span></div>`;
+}
+function renderBigAd() {
+  const el = $('adBig');
+  if (!el) return;
+  el.innerHTML = `<span class="adtag">${L('Auglýsing', 'Ad')}</span>
+    <div class="adbig-in"><div class="bigem">🥫</div><div class="bigt">HEIÐARS<br>REMÚLAÐI</div><div class="bigd">Á pylsuna.<br>Á fiskinn.<br>Á allt.</div>
+    <div class="bigbadge">NÚ Í 1 LÍTRA<br>BRÚSA!</div><div class="bigf">Heiðar mælir með.</div></div>`;
+}
 function renderList() {
   const list = visibleEvents();
-  $('list').innerHTML = list.map(evRow).join('') || `<div class="empty">${L('Engir viðburðir fundust.', 'No events found.')}${F.inView || F.placeId || F.sel || F.q ? '' : '<br>' + L('Vertu fyrst(ur) til að setja inn viðburð!', 'Be the first to post an event!')}</div>`;
+  let ai = 0;
+  $('list').innerHTML = list.map((e, i) => evRow(e) + ((i + 1) % 6 === 0 && i + 1 < list.length ? adCard(ai++) : '')).join('') || `<div class="empty">${L('Engir viðburðir fundust.', 'No events found.')}${F.inView || F.placeId || F.sel || F.q ? '' : '<br>' + L('Vertu fyrst(ur) til að setja inn viðburð!', 'Be the first to post an event!')}</div>`;
   $('list').querySelectorAll('[data-ev]').forEach((b) => (b.onclick = () => openEvent(b.dataset.ev)));
   const n = list.length;
   const where = F.region ? regionName(F.region) : L('öllu landinu', 'all of Iceland');
@@ -840,7 +863,7 @@ function wireLogin(root) {
 /* ---------- Mitt svæði ---------- */
 async function loadMe() {
   try { ME = await api('/me'); } catch (_e) { ME = { user: null }; }
-  const n = ME.user ? ME.pending : 0;
+  const n = ME.user ? ME.pending + (ME.feedbackUnread || 0) : 0;
   $('mineBadge').textContent = n; $('mineBadge').classList.toggle('hidden', !n);
 }
 function showPublic() { $('publicView').classList.remove('hidden'); $('mineView').classList.add('hidden'); $('dateChips').classList.remove('hidden'); if (map) { map.resize(); if (!F.inView && !F.placeId && !F.sel) fitIceland(); } }
@@ -849,12 +872,32 @@ async function showMine() {
   await renderMine();
 }
 $('mineBtn').onclick = showMine;
+$('fbLink').onclick = () => { store.set('goFeedback', 1); showMine(); };
 $('logo').onclick = () => { showPublic(); if (isMobile()) showHome(); };
 
+async function loadFeedback() {
+  const box = $('fbList');
+  if (!box) return;
+  let r;
+  try { r = await api('/feedback'); } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  const unread = r.items.filter((x) => !x.seen).length;
+  box.innerHTML = (unread ? `<p class="role">${unread} ólesnar</p>` : '') + (r.items.map((x) => `<div class="card fb ${x.seen ? 'seen' : ''}">
+      <div class="role">${x.seen ? '' : '🔴 '}${esc(fmtLong(iso(new Date(x.created))))} · ${x.anon ? 'Nafnlaust' : esc((x.name ? x.name + ' – ' : '') + (x.email || ''))}</div>
+      <p style="white-space:pre-wrap;margin:8px 0">${esc(x.text)}</p>
+      <div class="row"><button class="btn sm" data-fb="${x.id}" data-a="${x.seen ? 'unseen' : 'seen'}">${x.seen ? 'Merkja ólesið' : '✓ Lesið'}</button>
+      <button class="btn sm ghost danger" data-fb="${x.id}" data-a="delete">🗑️ Eyða</button></div></div>`).join('') || '<p class="role">Engar athugasemdir enn.</p>');
+  box.querySelectorAll('[data-fb]').forEach((b) => (b.onclick = async () => {
+    if (b.dataset.a === 'delete' && !confirm('Ertu viss um að þú viljir eyða þessari athugasemd?')) return;
+    try { await api(`/feedback/${b.dataset.fb}/${b.dataset.a}`, { method: 'POST' }); await loadMe(); loadFeedback(); } catch (e) { toast(e.message, true); }
+  }));
+}
 async function renderMine() {
   const root = $('mineView');
   await loadMe();
-  if (!ME.user) { root.innerHTML = `<div class="dash"><div class="card">${loginHtml()}</div></div>`; wireLogin(root); return; }
+  if (!ME.user) {
+    root.innerHTML = `<div class="dash">${store.get('goFeedback') ? '<p class="note">💬 Skráðu þig inn til að senda athugasemd. Þú færð hlekk í tölvupósti.</p>' : ''}<div class="card">${loginHtml()}</div></div>`;
+    wireLogin(root); return;
+  }
   root.innerHTML = `<div class="dash"><p class="role">Hleð…</p></div>`;
   const [reqs, mine] = await Promise.all([api('/requests'), api('/my-events')]);
   const u = ME.user, pages = ME.pages;
@@ -871,6 +914,15 @@ async function renderMine() {
 
    <div class="sec"><button class="btn primary big" id="newEv" ${pages.length ? '' : 'disabled'}>➕ Setja inn viðburð</button>
      ${pages.length ? '' : '<p class="role">Þú þarft fyrst að ganga í síðu (staður, band eða félag) með kóða hér fyrir neðan.</p>'}</div>
+
+   ${u.owner ? `<div class="sec" id="fbOwner"><h2>💬 Athugasemdir frá prófurum</h2><div id="fbList"><p class="role">Hleð…</p></div></div>` : ''}
+
+   <div class="sec" id="fbSec"><h2>💬 Senda athugasemd</h2>
+     <form id="fbForm" class="card"><label>Hvað mætti laga eða bæta við síðuna?</label>
+       <textarea name="text" rows="4" maxlength="4000" placeholder="Skrifaðu hér…"></textarea>
+       <label class="cbx" style="margin-top:8px"><input type="checkbox" name="anon"><span>Senda nafnlaust</span></label>
+       <div class="row" style="margin-top:8px"><button class="btn primary">Senda</button></div>
+       <p class="role">Fer beint til þeirra sem sjá um síðuna. Nafnlaust: þeir sjá hvorki nafn né netfang.</p></form></div>
 
    <div class="sec"><h2>📅 Viðburðirnir mínir</h2>${upcoming.length ? upcoming.map(myEvCard).join('') : '<p class="role">Engir viðburðir framundan.</p>'}
      ${past.length ? `<details><summary class="role" style="cursor:pointer">🗂️ Liðnir viðburðir (${past.length})</summary>${past.map(myEvCard).join('')}</details>` : ''}</div>
@@ -894,6 +946,14 @@ async function renderMine() {
   </div>`;
 
   $('backBtn').onclick = showPublic;
+  $('fbForm').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const f = ev.target;
+    try { await api('/feedback', { method: 'POST', body: { text: f.elements.text.value, anon: f.anon.checked } }); f.reset(); toast('✅ Takk! Athugasemdin er komin til skila.'); if (u.owner) loadFeedback(); }
+    catch (e) { toast(e.message, true); }
+  };
+  if (u.owner) loadFeedback();
+  if (store.get('goFeedback')) { store.set('goFeedback', null); setTimeout(() => { $('fbSec').scrollIntoView({ behavior: 'smooth' }); $('fbForm').elements.text.focus(); }, 50); }
   $('logoutBtn').onclick = async () => { await api('/logout', { method: 'POST' }); store.set('sid', null); ME = null; await renderMine(); };
   const ne = $('newEv'); if (ne) ne.onclick = () => openEventForm(null);
   $('joinForm').onsubmit = async (ev) => {
@@ -1403,6 +1463,7 @@ function applyLang() {
   document.body.classList.add('m-list');
   try { await loadAll(); } catch (e) { $('list').innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   renderAll();
+  renderBigAd();
   initMap();
   loadMe();
   const sp = new URLSearchParams(location.search);

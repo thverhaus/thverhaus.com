@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Fraunces:opsz,wght@9..144,600;9..144,800&display=swap" rel="stylesheet">
 <link href="vendor/maplibre-gl-5.24.1/maplibre-gl.css" rel="stylesheet">
-<link href="style.css?v=12" rel="stylesheet">
+<link href="style.css?v=13" rel="stylesheet">
 </head>
 <body>
 <header>
@@ -26,7 +26,7 @@
 </header>
 <div id="publicView">
   <main>
-    <aside class="filters" id="filters"></aside>
+    <div class="leftcol"><aside class="filters" id="filters"></aside><div class="adbig" id="adBig"></div></div>
     <div class="mapwrap">
       <div id="map"></div>
       <div class="regions" id="regions"></div>
@@ -34,6 +34,7 @@
     <div class="listcol">
       <div class="listhead"><span class="info" id="listInfo"></span><button class="btn sm hidden" id="showAll"></button></div>
       <div class="list" id="list"></div>
+      <div class="foot"><button class="btn ghost" id="fbLink">💬 Senda athugasemd um síðuna</button></div>
     </div>
   </main>
 </div>
@@ -42,6 +43,6 @@
 <div class="mflow hidden" id="mflow"></div>
 <div id="overlays"></div>
 <script src="vendor/maplibre-gl-5.24.1/maplibre-gl.js"></script>
-<script src="app.js?v=12"></script>
+<script src="app.js?v=13"></script>
 </body>
 </html>
