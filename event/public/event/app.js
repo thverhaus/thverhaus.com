@@ -15,12 +15,20 @@ const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ==
 let lang = store.get('lang', 'is');
 const L = (is, en) => (lang === 'en' && en !== undefined ? en : is);
 
-const TAGS = ['tonleikar', 'leikhus', 'list', 'dj', 'uppistand', 'pubquiz', 'annad'];
+// Flokkar: aðalflokkar, og undirflokkar fyrir Tónlist og Leikhús.
+const SUBS = { tonlist: ['tonleikar', 'ball', 'dj', 'trubador', 'tonlist_annad'], leikhus: ['leiksyning', 'songleikur', 'barnaleikrit', 'dans', 'leikhus_annad'] };
+const TOPS = ['tonlist', 'leikhus', 'uppistand', 'pubquiz', 'list', 'annad'];
+const PARENT = {}; Object.entries(SUBS).forEach(([t, xs]) => xs.forEach((x) => (PARENT[x] = t)));
+const TAGS = TOPS;
 const TAGL = {
-  is: { tonleikar: 'Tónleikar', leikhus: 'Leikhús', list: 'List', dj: 'DJ', uppistand: 'Uppistand', pubquiz: 'Pub quiz', annad: 'Annað' },
-  en: { tonleikar: 'Live music', leikhus: 'Theatre', list: 'Art', dj: 'DJ', uppistand: 'Comedy', pubquiz: 'Pub quiz', annad: 'Other' },
+  is: { tonlist: 'Tónlist', leikhus: 'Leikhús', uppistand: 'Uppistand', pubquiz: 'Pub quiz', list: 'List', annad: 'Annað',
+    tonleikar: 'Tónleikar', ball: 'Ball', dj: 'DJ', trubador: 'Trúbador', tonlist_annad: 'Annað',
+    leiksyning: 'Leiksýning', songleikur: 'Söngleikur', barnaleikrit: 'Barnaleikrit', dans: 'Dans', leikhus_annad: 'Annað' },
+  en: { tonlist: 'Music', leikhus: 'Theatre', uppistand: 'Comedy', pubquiz: 'Pub quiz', list: 'Art', annad: 'Other',
+    tonleikar: 'Concert', ball: 'Dance (ball)', dj: 'DJ', trubador: 'Troubadour', tonlist_annad: 'Other',
+    leiksyning: 'Play', songleikur: 'Musical', barnaleikrit: "Children's play", dans: 'Dance', leikhus_annad: 'Other' },
 };
-const GENRES = ['rokk', 'metall', 'ponk', 'popp', 'hiphop', 'raf', 'djass', 'blus', 'kantri', 'thjodlaga', 'trubador', 'klassik', 'kor', 'abreidur'];
+const GENRES = ['rokk', 'metall', 'ponk', 'popp', 'hiphop', 'raf', 'djass', 'blus', 'kantri', 'thjodlaga', 'klassik', 'kor', 'abreidur'];
 const GENL = {
   is: { rokk: 'Rokk', metall: 'Metall', ponk: 'Pönk', popp: 'Popp', hiphop: 'Hip hop', raf: 'Raftónlist', djass: 'Djass', blus: 'Blús', kantri: 'Kántrí', thjodlaga: 'Þjóðlagatónlist', trubador: 'Trúbador', klassik: 'Klassík', kor: 'Kór', abreidur: 'Ábreiður' },
   en: { rokk: 'Rock', metall: 'Metal', ponk: 'Punk', popp: 'Pop', hiphop: 'Hip hop', raf: 'Electronic', djass: 'Jazz', blus: 'Blues', kantri: 'Country', thjodlaga: 'Folk', trubador: 'Singer-songwriter', klassik: 'Classical', kor: 'Choir', abreidur: 'Covers' },
@@ -39,7 +47,11 @@ function fmtShort(s) { const d = parseISO(s); return lang === 'en' ? `${d.getDat
 const priceStr = (e) => e.price === null || e.price === undefined ? '' : e.price === 0 ? L('Frítt inn', 'Free') : e.price.toLocaleString('de-DE') + ' kr.';
 const ageStr = (e) => e.age_text || (e.age === 'fylgd' ? L('Börn í fylgd með fullorðnum', 'Children with adults') : e.age ? e.age + '+' : '');
 const timeStr = (e) => esc(e.time || '') + (e.end_time ? '–' + esc(e.end_time) : '');
-const tagStr = (e) => [...(e.tags || []).map((t) => (t === 'annad' && e.other_label ? e.other_label : TAGL[lang][t] || t)), ...(e.genres || []).map((g) => GENL[lang][g] || g)];
+const tagStr = (e) => {
+  const t = e.tags || [];
+  const shown = t.filter((x) => !(SUBS[x] && SUBS[x].some((y) => t.includes(y))) && !/_annad$/.test(x));
+  return [...shown.map((x) => (x === 'annad' && e.other_label ? e.other_label : TAGL[lang][x] || x)), ...(e.genres || []).map((g) => GENL[lang][g] || g)];
+};
 const posterUrl = (k) => (k ? `${API}/poster/${k}` : '');
 
 /* ---------- Netsamskipti ---------- */
@@ -73,15 +85,20 @@ let PLACE = {};        // id -> staður
 let EVENTS = [];
 let ME = null;         // {user,pages,pending}
 const F = { quick: 'all', from: null, to: null, q: '', placeId: null, inView: false };
-const SF = (() => { const v = store.get('filters', {}); return { tags: new Set(v.tags || []), genres: new Set(v.genres || []), fam: !!v.fam }; })();
-const saveSF = () => store.set('filters', { tags: [...SF.tags], genres: [...SF.genres], fam: SF.fam });
+const SF = (() => { const v = store.get('filters2', {}); return { tags: new Set(v.tags || []), genres: new Set(v.genres || []), fam: !!v.fam, free: !!v.free, gOpen: false }; })();
+const saveSF = () => store.set('filters2', { tags: [...SF.tags], genres: [...SF.genres], fam: SF.fam, free: SF.free });
 function typeMatch(e) {
   if (SF.fam && !e.fam) return false;
-  const t = SF.tags, g = SF.genres;
-  if (!t.size && !g.size) return true;
-  const music = (e.tags || []).includes('tonleikar');
-  if (g.size && music && (e.genres || []).some((x) => g.has(x))) return true;
-  return (e.tags || []).some((x) => t.has(x) && !(x === 'tonleikar' && g.size));
+  if (SF.free && e.price !== 0) return false;
+  if (!SF.tags.size) return true; // „Allt“
+  const et = e.tags || [];
+  return TOPS.some((top) => {
+    if (!SF.tags.has(top) || !et.includes(top)) return false;
+    const subs = (SUBS[top] || []).filter((x) => SF.tags.has(x));
+    if (subs.length && !subs.some((x) => et.includes(x))) return false;
+    if (top === 'tonlist' && SF.genres.size && !(e.genres || []).some((g) => SF.genres.has(g))) return false;
+    return true;
+  });
 }
 
 function regionName(id) { const r = GEO && GEO.regions.find((x) => x.id === id); return r ? L(r.n, r.en) : ''; }
@@ -105,9 +122,8 @@ async function loadAll() {
 function setPlaces(list) { PLACES = list; PLACE = {}; list.forEach((p) => (PLACE[p.id] = p)); assignPlaces(); }
 // Bæir á kortinu: langt frá sjást bara stærri bæir („miðstöðvar“), nær allir bæir, svo staðirnir sjálfir.
 const Z_HUB = 7, Z_TOWN = 10.5;
-const HUBS = ['Reykjavík', 'Reykjanesbær', 'Akranes', 'Borgarnes', 'Stykkishólmur', 'Ísafjörður', 'Patreksfjörður', 'Hólmavík', 'Blönduós', 'Sauðárkrókur',
-  'Akureyri', 'Húsavík', 'Þórshöfn', 'Egilsstaðir', 'Höfn', 'Kirkjubæjarklaustur', 'Vík', 'Hvolsvöllur', 'Selfoss', 'Vestmannaeyjar'];
-const MAJOR = new Set(['Reykjavík', 'Akureyri', 'Ísafjörður', 'Egilsstaðir', 'Höfn', 'Vík', 'Selfoss', 'Vestmannaeyjar', 'Borgarnes', 'Sauðárkrókur', 'Húsavík']);
+const HUBS = ['Reykjavík', 'Akureyri', 'Ísafjörður', 'Egilsstaðir', 'Höfn', 'Vík', 'Selfoss', 'Vestmannaeyjar'];
+const MAJOR = new Set(HUBS);
 let P2T = {}, P2H = {}, TOWNLL = {};
 function assignPlaces() {
   if (!GEO) return;
@@ -227,21 +243,36 @@ function renderFilters() {
   const inDates = (() => { const [a, b] = dateRange(); return EVENTS.filter((e) => e.date >= a && e.date <= b); })();
   const cT = {}, cG = {};
   for (const e of inDates) { (e.tags || []).forEach((t) => (cT[t] = (cT[t] || 0) + 1)); (e.genres || []).forEach((g) => (cG[g] = (cG[g] || 0) + 1)); }
-  const nFam = inDates.filter((e) => e.fam).length;
-  const active = SF.tags.size + SF.genres.size + (SF.fam ? 1 : 0);
-  const opt = (k, v, label, n, on) => `<button class="opt ${on ? 'on' : ''}" data-${k}="${v}"><span>${label}</span><small>${n || 0}</small></button>`;
-  $('filters').innerHTML = `<div class="grp"><h3>🎛️ ${L('Hvað viltu sjá?', 'What do you want to see?')}</h3>
-     ${TAGS.map((t) => opt('ft', t, esc(TAGL[lang][t]), cT[t], SF.tags.has(t))).join('')}
-     ${opt('ffam', 1, '👨‍👩‍👧 ' + L('Fjölskylduvænt', 'Family friendly'), nFam, SF.fam)}</div>
-   <div class="grp"><h3>🎸 ${L('Tónlistarstefna', 'Music genre')}</h3>
-     ${GENRES.map((g) => opt('fg', g, esc(GENL[lang][g]), cG[g], SF.genres.has(g))).join('')}</div>
-   ${active ? `<button class="btn sm clear" id="fClear">✕ ${L('Hreinsa síu', 'Clear filter')}</button>` : ''}`;
+  const cb = (k, v, label, n, on, sub) => `<label class="cbx ${sub ? 'sub' : ''}"><input type="checkbox" data-${k}="${v}" ${on ? 'checked' : ''}><span>${label}</span><small>${n ?? ''}</small></label>`;
+  let html = cb('fall', 1, '<b>' + L('Allt', 'Everything') + '</b>', inDates.length, !SF.tags.size) + '<hr>';
+  for (const top of TOPS) {
+    html += cb('ft', top, esc(TAGL[lang][top]), cT[top] || 0, SF.tags.has(top));
+    if (SUBS[top] && SF.tags.has(top)) {
+      html += SUBS[top].map((x) => cb('ft', x, esc(TAGL[lang][x]), cT[x] || 0, SF.tags.has(x), true)).join('');
+      if (top === 'tonlist') {
+        html += `<button class="glink" id="gToggle">${SF.gOpen || SF.genres.size ? '▾' : '▸'} ${L('Tónlistarstefna', 'Genre')}${SF.genres.size ? ` (${SF.genres.size})` : ''}</button>`;
+        if (SF.gOpen || SF.genres.size) html += GENRES.map((g) => cb('fg', g, esc(GENL[lang][g]), cG[g] || 0, SF.genres.has(g), true)).join('');
+      }
+    }
+  }
+  html += '<hr>' + cb('ffam', 1, '👨‍👩‍👧 ' + L('Fjölskylduvænt', 'Family friendly'), inDates.filter((e) => e.fam).length, SF.fam)
+    + cb('ffree', 1, '💸 ' + L('Frítt inn', 'Free entry'), inDates.filter((e) => e.price === 0).length, SF.free);
+  $('filters').innerHTML = html;
+  const active = SF.tags.size + (SF.fam ? 1 : 0) + (SF.free ? 1 : 0);
   const fb = document.querySelector('[data-q="filters"]');
   if (fb) fb.textContent = '🎛️ ' + L('Sía', 'Filter') + (active ? ` (${active})` : '');
-  $('filters').querySelectorAll('[data-ft]').forEach((b) => (b.onclick = () => { const t = b.dataset.ft; SF.tags.has(t) ? SF.tags.delete(t) : SF.tags.add(t); saveSF(); renderAll(); }));
-  $('filters').querySelectorAll('[data-fg]').forEach((b) => (b.onclick = () => { const g = b.dataset.fg; SF.genres.has(g) ? SF.genres.delete(g) : SF.genres.add(g); saveSF(); renderAll(); }));
-  $('filters').querySelectorAll('[data-ffam]').forEach((b) => (b.onclick = () => { SF.fam = !SF.fam; saveSF(); renderAll(); }));
-  const c = $('fClear'); if (c) c.onclick = () => { SF.tags.clear(); SF.genres.clear(); SF.fam = false; saveSF(); renderAll(); };
+  const R = $('filters');
+  R.querySelector('[data-fall]').onchange = () => { SF.tags.clear(); SF.genres.clear(); saveSF(); renderAll(); };
+  R.querySelectorAll('[data-ft]').forEach((b) => (b.onchange = () => {
+    const t = b.dataset.ft;
+    if (b.checked) { SF.tags.add(t); if (PARENT[t]) SF.tags.add(PARENT[t]); }
+    else { SF.tags.delete(t); (SUBS[t] || []).forEach((x) => SF.tags.delete(x)); if (t === 'tonlist') SF.genres.clear(); }
+    saveSF(); renderAll();
+  }));
+  R.querySelectorAll('[data-fg]').forEach((b) => (b.onchange = () => { const g = b.dataset.fg; b.checked ? SF.genres.add(g) : SF.genres.delete(g); saveSF(); renderAll(); }));
+  R.querySelector('[data-ffam]').onchange = (ev) => { SF.fam = ev.target.checked; saveSF(); renderAll(); };
+  R.querySelector('[data-ffree]').onchange = (ev) => { SF.free = ev.target.checked; saveSF(); renderAll(); };
+  const gt = $('gToggle'); if (gt) gt.onclick = () => { SF.gOpen = !(SF.gOpen || SF.genres.size); if (!SF.gOpen) { SF.genres.clear(); saveSF(); } renderAll(); };
 }
 function renderAll() { renderDateChips(); renderFilters(); renderRegions(); renderList(); updateMapData(); }
 
@@ -319,7 +350,7 @@ function bboxOf(geom) {
   walk(geom.coordinates);
   return [[a, b], [c, d]];
 }
-function fitIceland() { if (map) map.fitBounds(ICELAND, { padding: 20 }); }
+function fitIceland() { if (map) map.fitBounds(ICELAND, { padding: 40, animate: false }); }
 function fitArea(kind, id) {
   const f = AREAS.features.find((x) => x.properties.kind === kind && x.properties.id === id);
   if (!f || !map) return;
@@ -352,6 +383,8 @@ async function initMap() {
     maxBounds: [[-32, 61.5], [-6, 68.2]], dragRotate: false, pitchWithRotate: false, attributionControl: { compact: true },
   });
   map.touchZoomRotate.disableRotation();
+  map.once('load', () => fitIceland());
+  new ResizeObserver(() => { map.resize(); if (!F.inView && !F.placeId) fitIceland(); }).observe($('map'));
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
   map.addControl(new ThemeControl(), 'top-left');
   let wired = false;
@@ -871,8 +904,10 @@ function openEventForm(ev, isCopy) {
      <div class="note warn hidden" id="pastWarn">⚠️ Þessi dagsetning er liðin. Ýttu aftur á vista ef þú vilt vista samt.</div></div>
    <div class="f"><label>🕘 Byrjar</label>${timeFieldHtml('time', ev.time || '21:00')}</div>
    <div class="f"><label>⏱️ Lýkur (má sleppa)</label>${timeFieldHtml('end_time', ev.end_time || '', true)}</div>
-   <div class="f"><label>🏷️ Hvernig viðburður?</label><div class="tagpick">${TAGS.map((t) => `<span class="chip ${tags.has(t) ? 'on' : ''}" data-tag="${t}">${TAGL.is[t]}</span>`).join('')}</div>
-     <div id="genreBox" class="${tags.has('tonleikar') ? '' : 'hidden'}" style="margin-top:10px"><span class="role">🎸 Tónlistarstefna (má velja fleiri en eina, max 4):</span>
+   <div class="f"><label>🏷️ Hvernig viðburður?</label><div class="tagpick">${TOPS.map((t) => `<span class="chip ${tags.has(t) ? 'on' : ''}" data-tag="${t}">${TAGL.is[t]}</span>`).join('')}</div>
+     ${Object.entries(SUBS).map(([top, xs]) => `<div data-subbox="${top}" class="${tags.has(top) ? '' : 'hidden'}" style="margin-top:10px"><span class="role">${TAGL.is[top]}, nánar:</span>
+       <div class="tagpick" style="margin-top:6px">${xs.map((x) => `<span class="chip ${tags.has(x) ? 'on' : ''}" data-sub="${x}">${TAGL.is[x]}</span>`).join('')}</div></div>`).join('')}
+     <div id="genreBox" class="${tags.has('tonlist') ? '' : 'hidden'}" style="margin-top:10px"><span class="role">🎸 Tónlistarstefna (má sleppa, max 4):</span>
        <div class="tagpick" style="margin-top:6px">${GENRES.map((g) => `<span class="chip ${(ev.genres || []).includes(g) ? 'on' : ''}" data-genre="${g}">${GENL.is[g]}</span>`).join('')}</div></div>
      <input type="text" name="other_label" class="${tags.has('annad') ? '' : 'hidden'}" style="margin-top:8px" maxlength="40" placeholder="Hvað er þetta? t.d. fundur eða bingó" value="${esc(ev.other_label || '')}"></div>
    <div class="two"><div class="f"><label>💰 Verð (kr.)</label><input type="number" name="price" min="0" step="1" inputmode="numeric" placeholder="0 = frítt inn" value="${ev.price ?? ''}"></div>
@@ -899,7 +934,8 @@ function openEventForm(ev, isCopy) {
   $('dateBtn').onclick = () => openCal(f.date.value || iso(TODAY), { title: 'Dagsetning', min: iso(TODAY), allowPast: true, onPick: setDate });
   const checkChange = () => { const hb = $('hlBox'); if (hb) hb.classList.toggle('hidden', !(ev.status === 'approved' && (f.date.value !== ev.date || f.time.value !== ev.time))); };
   f.querySelectorAll('[data-tf="time"] [data-tq]').forEach((c) => c.addEventListener('click', checkChange));
-  f.querySelectorAll('[data-tag]').forEach((c) => (c.onclick = () => { c.classList.toggle('on'); f.other_label.classList.toggle('hidden', !f.querySelector('[data-tag="annad"].on')); $('genreBox').classList.toggle('hidden', !f.querySelector('[data-tag="tonleikar"].on')); }));
+  f.querySelectorAll('[data-tag]').forEach((c) => (c.onclick = () => { c.classList.toggle('on'); f.other_label.classList.toggle('hidden', !f.querySelector('[data-tag="annad"].on')); $('genreBox').classList.toggle('hidden', !f.querySelector('[data-tag="tonlist"].on')); f.querySelectorAll('[data-subbox]').forEach((bx) => bx.classList.toggle('hidden', !f.querySelector(`[data-tag="${bx.dataset.subbox}"].on`))); }));
+  f.querySelectorAll('[data-sub]').forEach((c) => (c.onclick = () => c.classList.toggle('on')));
   f.querySelectorAll('[data-genre]').forEach((c) => (c.onclick = () => { if (!c.classList.contains('on') && f.querySelectorAll('[data-genre].on').length >= 4) return toast('Mest 4 stefnur', true); c.classList.toggle('on'); }));
   const setAge = (a) => {
     const known = AGES.includes(String(a));
@@ -940,6 +976,7 @@ function openEventForm(ev, isCopy) {
     e2.preventDefault();
     const errBox = $('evErr'); errBox.innerHTML = '';
     const tagsSel = [...f.querySelectorAll('[data-tag].on')].map((c) => c.dataset.tag);
+    tagsSel.push(...[...f.querySelectorAll('[data-sub].on')].filter((c) => tagsSel.includes(PARENT[c.dataset.sub])).map((c) => c.dataset.sub));
     const body = {
       page_id: f.page_id.value, place_id: pf.value(), title: f.elements.title.value, date: f.date.value, time: f.time.value, end_time: f.end_time.value,
       price: f.price.value === '' ? null : Number(f.price.value), door: f.door.checked, ticket: f.ticket.value, age: f.age.value, age_text: f.age_text.value,

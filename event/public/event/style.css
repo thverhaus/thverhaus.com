@@ -30,7 +30,7 @@ header{position:sticky;top:0;z-index:20;background:rgba(29,18,20,.96);backdrop-f
 .chips{display:flex;gap:8px;flex-wrap:wrap;padding:0 18px 10px}
 .chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 13px;font-size:15px;user-select:none;cursor:pointer}
 .chip.on{background:var(--accent);color:var(--onaccent);border-color:var(--accent);font-weight:700}
-main{display:grid;grid-template-columns:210px minmax(0,1.15fr) minmax(0,1fr);gap:18px;padding:18px;max-width:1600px;margin:0 auto}
+main{display:grid;grid-template-columns:235px minmax(0,1.15fr) minmax(0,1fr);gap:18px;padding:18px;max-width:1600px;margin:0 auto}
 .filters{position:sticky;top:120px;align-self:start;max-height:calc(100vh - 140px);overflow:auto}
 .filters h3{font-size:17px;margin:0 0 8px}
 .filters .grp{margin-bottom:18px}
@@ -111,7 +111,7 @@ details.paste textarea{margin:10px 0}
 .maplibregl-popup-content{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:12px;font-family:inherit}
 .maplibregl-popup-tip{border-top-color:var(--panel)!important;border-bottom-color:var(--panel)!important}
 .maplibregl-ctrl-attrib{font-size:11px}
-@media (max-width:1100px){main{grid-template-columns:190px minmax(0,1fr) minmax(0,1fr)}}
+@media (max-width:1100px){main{grid-template-columns:215px minmax(0,1fr) minmax(0,1fr)}}
 @media (max-width:900px){
   main{grid-template-columns:1fr;padding:12px;gap:12px}
   .filters{display:none;position:static;max-height:none;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
@@ -125,3 +125,12 @@ details.paste textarea{margin:10px 0}
   .ev{grid-template-columns:56px 1fr}
   .ev .pr{grid-column:2;text-align:left}
 }
+
+.cbx{display:flex;align-items:center;gap:10px;padding:6px 6px;border-radius:8px;cursor:pointer;font-size:16px}
+.cbx:hover{background:var(--panel)}
+.cbx input{width:18px;height:18px;accent-color:var(--accent);margin:0}
+.cbx span{flex:1}
+.cbx small{color:var(--muted);font-size:13px}
+.cbx.sub{padding-left:30px;font-size:15px}
+.filters hr{border:0;border-top:1px solid var(--line);margin:8px 0}
+.glink{background:none;border:0;color:var(--accent);padding:6px 6px 6px 30px;font-size:14px;font-weight:700}

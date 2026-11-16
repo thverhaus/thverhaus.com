@@ -10,6 +10,8 @@ const BANDS = [
 
 const TITLES = {
   tonleikar: (b) => [`${b}`, `${b} – útgáfutónleikar`, `${b} á heimavelli`, `Tónleikar: ${b}`, `${b} + gestir`, `Jólatónleikar ${b}`],
+  ball: () => ["Dansleikur", "Stórdansleikur", "Jólaball", "Sveitaball", "Þorrablót og ball"],
+  trubador: () => ["Trúbador", "Trúbadorkvöld", "Trúbador fram á nótt", "Singalong með trúbador"],
   dj: () => ["DJ kvöld", "Föstudagsdiskó", "Dansað fram á nótt", "Vínylkvöld", "90's kvöld", "Laugardagsklúbbur"],
   pubquiz: () => ["Pub quiz", "Barsvar", "Pub quiz – jólaþema", "Spurningakeppni"],
   uppistand: () => ["Uppistand", "Uppistandskvöld", "Opið míkrófónkvöld"],
@@ -19,22 +21,23 @@ const TITLES = {
 };
 const OTHER_LABEL = { "Bingó": "Bingó", "Íbúafundur": "Fundur", "Jólamarkaður": "Markaður", "Prjónakvöld": "Prjónakvöld", "Spilakvöld": "Spilakvöld", "Jólaball": "Ball" };
 const BY_CAT = {
-  bar: ["tonleikar", "tonleikar", "dj", "pubquiz", "uppistand"],
-  pub: ["tonleikar", "tonleikar", "pubquiz", "pubquiz", "dj"],
+  bar: ["tonleikar", "tonleikar", "dj", "trubador", "trubador", "pubquiz", "uppistand"],
+  pub: ["tonleikar", "trubador", "trubador", "pubquiz", "pubquiz", "dj"],
   nightclub: ["dj", "dj", "tonleikar"],
   biergarten: ["tonleikar", "pubquiz"],
   theatre: ["leikhus", "leikhus", "uppistand", "tonleikar"],
   cinema: ["annad", "list"],
   arts_centre: ["list", "tonleikar", "leikhus"],
   music_venue: ["tonleikar"], concert_hall: ["tonleikar"], events_venue: ["tonleikar", "dj"],
-  community_centre: ["annad", "tonleikar", "leikhus", "annad"],
+  community_centre: ["annad", "ball", "ball", "tonleikar", "leikhus", "annad"],
   social_centre: ["annad", "tonleikar"],
-  sports_hall: ["annad", "tonleikar"],
+  sports_hall: ["annad", "ball", "tonleikar"],
   cafe: ["tonleikar", "list", "pubquiz"],
   restaurant: ["tonleikar", "pubquiz"],
 };
 
-const GENRES = ["rokk", "rokk", "metall", "ponk", "popp", "popp", "hiphop", "raf", "djass", "blus", "kantri", "thjodlaga", "trubador", "trubador", "klassik", "kor", "abreidur"];
+const GENRES = ["rokk", "rokk", "metall", "ponk", "popp", "popp", "hiphop", "raf", "djass", "blus", "kantri", "thjodlaga", "klassik", "kor", "abreidur"];
+const THEATRE = ["leiksyning", "leiksyning", "songleikur", "barnaleikrit", "dans", "leikhus_annad"];
 
 function rng(seed) {
   let s = seed >>> 0;
@@ -70,11 +73,12 @@ export async function createDemo(env, todayISO) {
     const count = big ? 2 + Math.floor(r() * 5) : 1 + Math.floor(r() * 2);
     for (let k = 0; k < count; k++) {
       const tag = pick(BY_CAT[pl.cat] || ["tonleikar"]);
-      const by = tag === "tonleikar" || tag === "dj" ? pick(bandsOnly) : pick(groups);
+      const music = ["tonleikar", "dj", "ball", "trubador"].includes(tag);
+      const by = music ? pick(bandsOnly) : pick(groups);
       const title = pick(TITLES[tag](by.name));
       const day = Math.floor(r() * 42);
       const fam = tag === "list" || tag === "leikhus" ? r() < 0.5 : tag === "annad" ? r() < 0.4 : r() < 0.06;
-      const time = tag === "dj" ? pick(["22:00", "23:00", "23:30"]) : tag === "list" ? pick(["16:00", "17:00", "18:00"]) : fam ? pick(["14:00", "15:00", "17:00"]) : pick(["20:00", "20:30", "21:00", "21:00", "22:00"]);
+      const time = tag === "ball" ? pick(["23:00", "23:30"]) : tag === "dj" ? pick(["22:00", "23:00", "23:30"]) : tag === "list" ? pick(["16:00", "17:00", "18:00"]) : fam ? pick(["14:00", "15:00", "17:00"]) : pick(["20:00", "20:30", "21:00", "21:00", "22:00"]);
       const end = tag === "dj" ? pick(["03:00", "04:00", ""]) : r() < 0.3 ? pick(["23:00", "00:00", "01:00"]) : "";
       const price = tag === "list" || tag === "annad" ? (r() < 0.7 ? 0 : 1000) : tag === "pubquiz" ? 0 : r() < 0.15 ? 0 : r() < 0.15 ? null : Math.round((1500 + r() * 5000) / 500) * 500;
       const age = fam ? "" : tag === "dj" ? pick(["20", "18", "20"]) : r() < 0.4 ? pick(["18", "20"]) : "";
@@ -86,7 +90,8 @@ export async function createDemo(env, todayISO) {
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(`demo-e-${n++}`, pl.id, by.id, title, date, time, end, price,
         price && price >= 3000 && r() < 0.5 ? "https://tix.is/" : "", price && r() < 0.5 ? 1 : 0, age, "",
-        JSON.stringify([tag]), JSON.stringify(tag === "tonleikar" ? (by.kind === "group" ? ["kor"] : [...new Set([pick(GENRES), ...(r() < 0.3 ? [pick(GENRES)] : [])])]) : []), tag === "annad" ? OTHER_LABEL[title] || "" : "", fam ? 1 : 0,
+        JSON.stringify(music ? ["tonlist", tag] : tag === "leikhus" ? ["leikhus", pick(THEATRE)] : [tag]),
+        JSON.stringify(music && tag !== "dj" && r() < 0.8 ? [...new Set([pick(GENRES), ...(r() < 0.3 ? [pick(GENRES)] : [])])] : []), tag === "annad" ? OTHER_LABEL[title] || "" : "", fam ? 1 : 0,
         "🧪 Prufuviðburður – ekki raunverulegur. Hér kæmi lýsing frá staðnum eða bandinu.", "", "approved", cancelled,
         cancelled ? "Veikindi í hljómsveitinni" : "", changed, changed ? `${date} 20:00` : "", now, now));
     }

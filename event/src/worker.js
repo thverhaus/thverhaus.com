@@ -8,8 +8,23 @@ const OSM_VERSION = "261114d";
 const SESSION_DAYS = 365;
 const LOGIN_TTL_MIN = 30;
 const MAX_POSTER_BYTES = 3 * 1024 * 1024;
-const TAGS = ["tonleikar", "leikhus", "list", "dj", "uppistand", "pubquiz", "annad"];
-const GENRES = ["rokk", "metall", "ponk", "popp", "hiphop", "raf", "djass", "blus", "kantri", "thjodlaga", "trubador", "klassik", "kor", "abreidur"];
+// Flokkar: aðalflokkar og undirflokkar (Tónlist og Leikhús).
+const SUBS = {
+  tonlist: ["tonleikar", "ball", "dj", "trubador", "tonlist_annad"],
+  leikhus: ["leiksyning", "songleikur", "barnaleikrit", "dans", "leikhus_annad"],
+};
+const TOPS = ["tonlist", "leikhus", "uppistand", "pubquiz", "list", "annad"];
+const PARENT = {};
+for (const [t, subs] of Object.entries(SUBS)) subs.forEach((x) => (PARENT[x] = t));
+const TAGS = [...TOPS, ...Object.keys(PARENT)];
+const GENRES = ["rokk", "metall", "ponk", "popp", "hiphop", "raf", "djass", "blus", "kantri", "thjodlaga", "klassik", "kor", "abreidur"];
+// Eldri flokkun (fyrir 16. nóv): "tonleikar"/"dj" án "tonlist", og "trubador" sem stefna.
+function normTags(tags, genres) {
+  const t = new Set(tags || []);
+  for (const x of [...t]) if (PARENT[x]) t.add(PARENT[x]);
+  if ((genres || []).includes("trubador")) { t.add("tonlist"); t.add("trubador"); }
+  return [...t].filter((x) => TAGS.includes(x));
+}
 
 /* ---------------- Gagnagrunnur ---------------- */
 
@@ -439,6 +454,8 @@ function outEvent(r) {
   let genres = [];
   try { tags = JSON.parse(r.tags || "[]"); } catch {}
   try { genres = JSON.parse(r.genres || "[]"); } catch {}
+  tags = normTags(tags, genres);
+  genres = genres.filter((g) => GENRES.includes(g));
   return { ...r, tags, genres, door: !!r.door, fam: !!r.fam, cancelled: !!r.cancelled, time_changed: !!r.time_changed };
 }
 
@@ -477,8 +494,8 @@ function cleanEvent(b) {
   if (end_time && !isTime(end_time)) return { error: "Lokatíminn er ekki réttur." };
   let price = b.price === "" || b.price === null || b.price === undefined ? null : Math.round(Number(b.price));
   if (price !== null && !(price >= 0 && price < 1_000_000)) return { error: "Verðið er ekki rétt." };
-  const tags = Array.isArray(b.tags) ? b.tags.filter((t) => TAGS.includes(t)) : [];
-  if (!tags.length) return { error: "Veldu tegund viðburðar." };
+  const tags = normTags(Array.isArray(b.tags) ? b.tags.filter((t) => TAGS.includes(t)) : []);
+  if (!tags.some((t) => TOPS.includes(t))) return { error: "Veldu tegund viðburðar." };
   const age = ["", "12", "16", "18", "20", "fylgd"].includes(String(b.age || "")) ? String(b.age || "") : "";
   return {
     title, date, time, end_time, price,
@@ -487,7 +504,7 @@ function cleanEvent(b) {
     age,
     age_text: age ? "" : str(b.age_text, 80),
     tags: JSON.stringify(tags),
-    genres: JSON.stringify(tags.includes("tonleikar") && Array.isArray(b.genres) ? b.genres.filter((g) => GENRES.includes(g)).slice(0, 4) : []),
+    genres: JSON.stringify(tags.includes("tonlist") && Array.isArray(b.genres) ? b.genres.filter((g) => GENRES.includes(g)).slice(0, 4) : []),
     other_label: tags.includes("annad") ? str(b.other_label, 40) : "",
     fam: b.fam ? 1 : 0,
     descr: str(b.descr, 3000),
