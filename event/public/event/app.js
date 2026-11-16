@@ -579,8 +579,20 @@ async function renderOwner() {
      <div class="f hidden" id="npPlace"><label>Staðurinn</label>${placeFieldHtml('np', null)}</div>
      <label class="check"><input type="checkbox" name="join"> Ég verð líka stjórnandi síðunnar</label>
      <div style="margin-top:10px"><button class="btn primary">Búa til</button></div><div id="npMsg"></div></form>
-   <div class="card"><h3>Allar síður (${r.pages.length})</h3>${r.pages.map((p) => `<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:6px 0">
+   <div class="card"><h3>🧪 Prufugögn</h3><p class="role">Tilbúnir staðir, bönd og viðburðir um allt land til að sjá síðuna í notkun. Allt prufudót er merkt og hægt að eyða í einu.</p>
+     <div class="row"><button class="btn" id="demoAdd">➕ Setja inn prufuviðburði</button><button class="btn danger" id="demoDel">🗑️ Eyða öllum prufugögnum</button></div></div>
+   <div class="card"><h3>Allar síður (${r.pages.filter((p) => !p.id.startsWith('demo-')).length})</h3>${r.pages.filter((p) => !p.id.startsWith('demo-')).map((p) => `<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:6px 0">
      <span><b>${esc(p.name)}</b> <span class="role">${esc(KINDS[p.kind])}${p.place_name ? ' · ' + esc(p.place_name) : ''} · ${p.n} meðlimir</span></span><span class="code">${esc(p.code)}</span></div>`).join('')}</div>`;
+  const demo = async (method) => {
+    if (method === 'DELETE' && !confirm('Eyða öllum prufugögnum? Alvöru gögn haldast.')) return;
+    try {
+      const r = await api('/admin/demo', { method });
+      toast(method === 'POST' ? `✅ ${r.events} prufuviðburðir á ${r.places} stöðum` : '🗑️ Prufugögnum eytt');
+      setPlaces((await api('/places')).places); await loadEvents(); renderAll(); renderMine();
+    } catch (e) { toast(e.message, true); }
+  };
+  $('demoAdd').onclick = () => demo('POST');
+  $('demoDel').onclick = () => demo('DELETE');
   const f = $('newPage');
   const pf = wirePlaceField(f, 'np');
   f.kind.onchange = () => $('npPlace').classList.toggle('hidden', f.kind.value !== 'venue');

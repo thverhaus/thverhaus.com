@@ -1,3 +1,5 @@
+import { createDemo, deleteDemo } from "./demo.js";
+
 // Viðburðasíðan – netþjónn (Cloudflare Worker + D1 + R2).
 // Aðskilið frá Mulehead. Öll slóð byrjar á BASE_PATH (nú /event).
 
@@ -673,6 +675,10 @@ async function route(req, env, url, path) {
   if ((mm = path.match(/^\/api\/pages\/([\w-]+)\/untrust$/)) && m === "POST") return apiUntrust(req, env, user, mm[1]);
   if (path === "/api/admin/pages" && m === "GET") return apiAdminPages(req, env, user);
   if (path === "/api/admin/pages" && m === "POST") return apiCreatePage(req, env, user);
+  if (path === "/api/admin/demo" && (m === "POST" || m === "DELETE")) {
+    if (!user.is_owner) return err("Aðeins eigandi.", 403);
+    return json(m === "POST" ? await createDemo(env, todayISO()) : await deleteDemo(env));
+  }
   if (path === "/api/places" && m === "POST") return apiCreatePlace(req, env, user);
   if ((mm = path.match(/^\/api\/places\/([\w-]+)$/)) && m === "PUT") return apiUpdatePlace(req, env, user, mm[1]);
   if (path === "/api/my-events" && m === "GET") return apiMyEvents(req, env, user);
