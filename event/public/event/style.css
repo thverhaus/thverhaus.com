@@ -186,7 +186,10 @@ details.paste textarea{margin:10px 0}
   .tile{background:var(--panel);border:2px solid var(--line);border-radius:18px;padding:20px 10px;font-weight:800;font-size:19px;display:flex;flex-direction:column;align-items:center;gap:8px}
   .tile .ic{font-size:40px;line-height:1}
   .tile.sm{padding:16px 8px;font-size:17px}
-  .tile:active{border-color:var(--accent);background:var(--panel2)}
+  .tile:active{background:var(--panel2)}
+  .tile.on{border-color:var(--accent);background:#4a2a22;box-shadow:0 0 0 2px var(--accent) inset}
+  .tile.on::after{content:'✓';position:absolute;top:8px;right:12px;color:var(--accent);font-size:20px;font-weight:900}
+  .tile{position:relative}
   .ev2{grid-template-columns:68px 1fr;padding:12px}
   .ev2 img{display:none}
   .ev2 .ti{font-size:18px}

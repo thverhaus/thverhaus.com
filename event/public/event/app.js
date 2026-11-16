@@ -125,14 +125,14 @@ async function loadAll() {
 }
 function setPlaces(list) { PLACES = list; PLACE = {}; list.forEach((p) => (PLACE[p.id] = p)); assignPlaces(); }
 // Bæir á kortinu: langt frá sjást bara stærri bæir („miðstöðvar“), nær allir bæir, svo staðirnir sjálfir.
-const Z_HUB = 7, Z_TOWN = 10.5;
+const Z_HUB = 7, Z_TOWN = 10; // undir Z_HUB: bara 8 bæjanöfn alltaf; frá Z_TOWN: staðirnir sjálfir
+const NEAR_KM = 15; // staðir úti í sveit innan 15 km frá aðalbæ sveitarfélagsins teljast „og nágrenni“
 const HUBS = ['Reykjavík', 'Akureyri', 'Ísafjörður', 'Egilsstaðir', 'Höfn', 'Vík', 'Selfoss', 'Vestmannaeyjar'];
 const MAJOR = new Set(HUBS);
-let P2T = {}, P2H = {}, TOWNLL = {}, ABSORB = {};
+let P2T = {}, TOWNLL = {}, ABSORB = {}, NEAR = new Set();
 function assignPlaces() {
   if (!GEO) return;
   TOWNLL = {}; GEO.towns.forEach((t) => (TOWNLL[t.n] = t.ll));
-  const hubs = HUBS.filter((h) => TOWNLL[h]);
   const nearest = (ll, names) => { let b = null, bd = 1e9; for (const n of names) { const d = distKm(ll, TOWNLL[n]); if (d < bd) { bd = d; b = n; } } return b; };
   const allTowns = Object.keys(TOWNLL);
   // Smáhverfi alveg við stærri bæ (t.d. Árbæjarhverfi við Selfoss) teljast til stærri bæjarins.
@@ -143,14 +143,17 @@ function assignPlaces() {
     for (const u of GEO.towns) if (((u.pop || 0) >= 1000 || MAJOR.has(u.n)) && u.n !== t.n) { const d = distKm(t.ll, u.ll); if (d < bd) { bd = d; best = u.n; } }
     if (best) ABSORB[t.n] = best;
   }
-  P2T = {}; P2H = {};
+  P2T = {}; NEAR = new Set();
   const POP = {}; GEO.towns.forEach((t) => (POP[t.n] = t.pop || 0));
+  // Aðalbær hvers sveitarfélags = fjölmennasti bærinn í því.
+  const MAIN = {}; for (const t of GEO.towns) if (!MAIN[t.m] || (t.pop || 0) > (POP[MAIN[t.m]] || 0)) MAIN[t.m] = t.n;
   for (const p of PLACES) {
     const ll = [p.lon, p.lat];
     let t = p.town && TOWNLL[p.town] ? p.town : null;
     if (!t) { const n = nearest(ll, allTowns); const lim = POP[n] > 20000 ? 8 : POP[n] > 2000 ? 3.5 : 1.8; if (distKm(ll, TOWNLL[n]) <= lim) t = n; }
-    P2T[p.id] = t && ABSORB[t] ? ABSORB[t] : t; // null = úti í sveit: sést undir eigin nafni
-    P2H[p.id] = p.region === 'hofudborg' ? 'Reykjavík' : nearest(ll, hubs);
+    if (t && ABSORB[t]) t = ABSORB[t];
+    if (!t) { const mt = MAIN[p.muni]; if (mt && distKm(ll, TOWNLL[mt]) <= NEAR_KM) { t = mt; NEAR.add(mt); } }
+    P2T[p.id] = t; // null = sér bóla undir eigin nafni (aldrei sett undir annað sveitarfélag eða bæ)
   }
 }
 const PROMOTE = new Set([]); // bæir sem Júlíus vill færa upp um flokk, t.d. 'Kirkjubæjarklaustur'
@@ -165,14 +168,13 @@ function aggGeo(kind) {
   const n = {};
   const rural = {};
   for (const e of eventsInDates()) {
-    if (kind === 'hub') { const k = P2H[e.place_id]; if (k) n[k] = (n[k] || 0) + 1; continue; }
     const k = P2T[e.place_id];
     if (k) n[k] = (n[k] || 0) + 1; else if (PLACE[e.place_id]) rural[e.place_id] = (rural[e.place_id] || 0) + 1;
   }
-  const names = kind === 'hub' ? HUBS : Object.keys(TOWNLL).filter((t) => !ABSORB[t]);
+  const names = Object.keys(TOWNLL).filter((t) => !ABSORB[t]);
   const feats = names.filter((t) => TOWNLL[t]).map((t) => {
-    const cnt = n[t] || 0, tier = kind === 'hub' ? 1 : townTier(t);
-    const anchor = kind === 'hub' ? HUB_ANCHOR[t] || 'left' : 'left';
+    const cnt = n[t] || 0, tier = townTier(t);
+    const anchor = MAJOR.has(t) ? HUB_ANCHOR[t] || 'left' : 'left';
     return { type: 'Feature', geometry: { type: 'Point', coordinates: TOWNLL[t] },
       properties: { key: 't:' + t, name: t, n: cnt, major: MAJOR.has(t) ? 1 : 0, tier, keep: cnt > 0 || tier <= 2 ? 1 : 0, anchor, off: cnt > 0 ? ANCH_OFF[anchor] : [0, 0] } };
   });
@@ -186,8 +188,8 @@ function aggGeo(kind) {
 // Staðirnir sem bóla nær yfir (svo smellur sýni nákvæmlega viðburðina í henni).
 function bubblePlaces(kind, key) {
   if (key.startsWith('p:')) return new Set([key.slice(2)]);
-  const name = key.slice(2), map2 = kind === 'hub' ? P2H : P2T;
-  return new Set(PLACES.filter((p) => map2[p.id] === name).map((p) => p.id));
+  const name = key.slice(2);
+  return new Set(PLACES.filter((p) => P2T[p.id] === name).map((p) => p.id));
 }
 async function loadEvents() {
   const r = await api('/events?from=' + iso(TODAY) + '&to=' + iso(addDays(TODAY, 365)));
@@ -468,26 +470,29 @@ async function initMap() {
       paint: { 'text-color': '#f2e2dc', 'text-halo-color': '#1d1214', 'text-halo-width': 1.5 } });
 
     // Bæjabólur: miðstöðvar langt frá, allir bæir nær.
-    const bubble = (id, src, minz, maxz) => {
+    const bubble = (id, src, minz, maxz, keepF, restF, rad) => {
       map.addSource(src, { type: 'geojson', data: aggGeo(src) });
       map.addLayer({ id: id + '-c', type: 'circle', source: src, minzoom: minz, maxzoom: maxz, filter: ['>', ['get', 'n'], 0],
-        paint: { 'circle-color': A, 'circle-opacity': 0.95, 'circle-stroke-width': 3, 'circle-stroke-color': 'rgba(222,138,90,.35)', 'circle-radius': ['step', ['get', 'n'], 12, 5, 15, 20, 19, 50, 24] } });
+        paint: { 'circle-color': A, 'circle-opacity': 0.95, 'circle-stroke-width': 3, 'circle-stroke-color': 'rgba(222,138,90,.35)', 'circle-radius': rad } });
       const size = ['match', ['get', 'tier'], 1, 17, 2, 15, 13];
       const color = ['case', ['>', ['get', 'n'], 0], '#f6e9e2', '#a88f88'];
       // Litlir bæir án viðburða mega víkja þegar þröngt er…
-      map.addLayer({ id: id + '-l2', type: 'symbol', source: src, minzoom: minz, maxzoom: maxz, filter: ['==', ['get', 'keep'], 0],
+      map.addLayer({ id: id + '-l2', type: 'symbol', source: src, minzoom: minz, maxzoom: maxz, filter: restF,
         layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': size, 'text-variable-anchor': ['left', 'right', 'top', 'bottom'], 'text-radial-offset': 0.3 },
         paint: { 'text-color': color, 'text-halo-color': '#120a0b', 'text-halo-width': 1.6 } });
       // …en bæir með viðburði og stærri bæir víkja aldrei.
-      map.addLayer({ id: id + '-l', type: 'symbol', source: src, minzoom: minz, maxzoom: maxz, filter: ['==', ['get', 'keep'], 1],
+      map.addLayer({ id: id + '-l', type: 'symbol', source: src, minzoom: minz, maxzoom: maxz, filter: keepF,
         layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Bold'], 'text-size': size, 'text-anchor': ['get', 'anchor'], 'text-offset': ['get', 'off'],
           'text-allow-overlap': true, 'symbol-sort-key': ['-', 0, ['get', 'n']] },
         paint: { 'text-color': color, 'text-halo-color': '#120a0b', 'text-halo-width': 1.8 } });
       map.addLayer({ id: id + '-n', type: 'symbol', source: src, minzoom: minz, maxzoom: maxz, filter: ['>', ['get', 'n'], 0],
         layout: { 'text-field': ['to-string', ['get', 'n']], 'text-font': ['Noto Sans Bold'], 'text-size': 14, 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': '#2a1208' } });
     };
-    bubble('hub', 'hub', 0, Z_HUB);
-    bubble('town', 'town', Z_HUB, Z_TOWN);
+    // Zoomað út: hver bær sína bólu (minni); bara 8 bæjanöfn alltaf, önnur nöfn þegar pláss er.
+    bubble('hub', 'hub', 0, Z_HUB, ['==', ['get', 'major'], 1], ['all', ['==', ['get', 'major'], 0], ['>', ['get', 'n'], 0], ['==', ['slice', ['get', 'key'], 0, 2], 't:']],
+      ['step', ['get', 'n'], 8, 5, 10, 20, 13, 50, 16]);
+    // Nær: bær með viðburði og bæir yfir 1.000 víkja aldrei.
+    bubble('town', 'town', Z_HUB, Z_TOWN, ['==', ['get', 'keep'], 1], ['==', ['get', 'keep'], 0], ['step', ['get', 'n'], 12, 5, 15, 20, 19, 50, 24]);
 
     if (!wired) { wired = true;
     const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 8 });
@@ -507,7 +512,7 @@ async function initMap() {
         tip.remove();
         const kind = f.layer.id === 'hub-c' ? 'hub' : 'town';
         const ids = bubblePlaces(kind, f.properties.key);
-        F.placeId = null; F.inView = false; F.sel = { label: f.properties.name + (kind === 'hub' && f.properties.name !== 'Reykjavík' ? ' ' + L('og nágrenni', 'and surroundings') : ''), ids };
+        F.placeId = null; F.inView = false; F.sel = { label: f.properties.name + (NEAR.has(f.properties.name) && f.properties.key.startsWith('t:') ? ' ' + L('og nágrenni', 'and surroundings') : ''), ids };
         const withEv = new Set(eventsInDates().filter((e) => ids.has(e.place_id)).map((e) => e.place_id));
         const pts = [...withEv].map((id) => PLACE[id]).filter(Boolean);
         if (pts.length) {
@@ -1152,21 +1157,32 @@ function flow(html) {
 }
 function closeFlow() { $('mflow').classList.add('hidden'); document.body.classList.remove('m-flow'); }
 function showHome() {
+  const sel = new Set();
   const el = flow(`<div class="mf"><h1>${L('Hvað langar þig að gera?', 'What do you feel like doing?')}</h1>
+    <p class="role" style="margin:-8px 0 6px">${L('Veldu eitt eða fleira', 'Pick one or more')}</p>
     <div class="tiles">${TOPS.map((t) => `<button class="tile" data-c="${t}"><span class="ic">${ICON[t]}</span>${esc(TAGL[lang][t])}</button>`).join('')}</div>
-    <button class="btn primary big" data-c="all">${L('Sýna mér allt', 'Show me everything')} →</button></div>`);
+    <button class="btn primary big hidden" id="mfNext">${L('Áfram', 'Next')} →</button>
+    <button class="btn big" id="mfAll" style="margin-top:10px">${L('Sýna mér allt', 'Show me everything')} →</button></div>`);
   el.querySelectorAll('[data-c]').forEach((b) => (b.onclick = () => {
-    const c = b.dataset.c;
-    SF.tags.clear(); SF.genres.clear(); if (c !== 'all') SF.tags.add(c); saveSF();
-    if (SUBS[c]) showSub(c); else goWhere();
+    const c = b.dataset.c; sel.has(c) ? sel.delete(c) : sel.add(c); b.classList.toggle('on', sel.has(c));
+    $('mfNext').classList.toggle('hidden', !sel.size);
   }));
+  $('mfAll').onclick = () => { SF.tags.clear(); SF.genres.clear(); saveSF(); goWhere(); };
+  $('mfNext').onclick = () => {
+    SF.tags.clear(); SF.genres.clear(); sel.forEach((c) => SF.tags.add(c)); saveSF();
+    const withSubs = [...sel].filter((c) => SUBS[c]);
+    if (withSubs.length) showSub(withSubs); else goWhere();
+  };
 }
-function showSub(top) {
-  const el = flow(`<div class="mf"><button class="back" data-back>← ${L('Til baka', 'Back')}</button><h1>${ICON[top]} ${esc(TAGL[lang][top])}</h1>
-    <button class="btn primary big" data-s="">${L('Allt', 'Everything')} (${esc(TAGL[lang][top]).toLowerCase()})</button>
-    <div class="tiles">${SUBS[top].map((x) => `<button class="tile" data-s="${x}"><span class="ic">${SUBICON[x]}</span>${esc(TAGL[lang][x])}</button>`).join('')}</div></div>`);
+function showSub(tops) {
+  const el = flow(`<div class="mf"><button class="back" data-back>← ${L('Til baka', 'Back')}</button>
+    <h1>${L('Nánar?', 'More specific?')}</h1><p class="role" style="margin:-8px 0 6px">${L('Veldu eða slepptu – ekkert valið = allt', 'Pick or skip – nothing picked = everything')}</p>
+    ${tops.map((top) => `<h2 style="font-size:21px;margin:18px 0 0">${ICON[top]} ${esc(TAGL[lang][top])}</h2>
+      <div class="tiles">${SUBS[top].map((x) => `<button class="tile sm" data-s="${x}"><span class="ic" style="font-size:30px">${SUBICON[x]}</span>${esc(TAGL[lang][x])}</button>`).join('')}</div>`).join('')}
+    <button class="btn primary big" id="mfNext2">${L('Áfram', 'Next')} →</button></div>`);
   el.querySelector('[data-back]').onclick = showHome;
-  el.querySelectorAll('[data-s]').forEach((b) => (b.onclick = () => { if (b.dataset.s) SF.tags.add(b.dataset.s); saveSF(); goWhere(); }));
+  el.querySelectorAll('[data-s]').forEach((b) => (b.onclick = () => b.classList.toggle('on')));
+  $('mfNext2').onclick = () => { el.querySelectorAll('[data-s].on').forEach((b) => SF.tags.add(b.dataset.s)); saveSF(); goWhere(); };
 }
 function goWhere() { const r = store.get('region', undefined); if (r === undefined) showWhere(); else showResults(r); }
 function showWhere() {
