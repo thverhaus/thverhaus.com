@@ -194,3 +194,14 @@ details.paste textarea{margin:10px 0}
   .ev2 img{display:none}
   .ev2 .ti{font-size:18px}
 }
+/* Varakort (gömul tæki) */
+#map.simple{display:flex;flex-direction:column;justify-content:center;padding:10px}
+#map.simple svg{width:100%;height:auto;max-height:calc(100% - 40px)}
+#map.simple .sr{fill:rgba(222,138,90,.12);stroke:var(--accent);stroke-width:1.2;cursor:pointer}
+#map.simple .sr:hover,#map.simple .sr.on{fill:rgba(222,138,90,.4)}
+#map.simple .sl{cursor:pointer}
+#map.simple text{fill:var(--text);font-size:15px;font-weight:700;text-anchor:middle;paint-order:stroke;stroke:#120a0b;stroke-width:3px}
+#map.simple text.c{fill:var(--accent);font-size:22px}
+.simplenote{color:var(--muted,#b9958d);font-size:14px;text-align:center;margin-top:6px}
+.btip .maplibregl-popup-content{padding:6px 10px;font-size:15px}
+@media (max-width:899px){#map.simple text{font-size:20px;stroke-width:4px}#map.simple text.c{font-size:28px}}
