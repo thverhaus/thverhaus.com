@@ -38,6 +38,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS trusts (venue_page_id TEXT NOT NULL, page_id TEXT NOT NULL, PRIMARY KEY (venue_page_id, page_id))`,
   `CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, place_id TEXT NOT NULL, page_id TEXT NOT NULL, title TEXT NOT NULL, date TEXT NOT NULL, time TEXT, end_time TEXT, price INTEGER, ticket TEXT, door INTEGER DEFAULT 0, age TEXT, age_text TEXT, tags TEXT, other_label TEXT, fam INTEGER DEFAULT 0, descr TEXT, poster TEXT, status TEXT NOT NULL, cancelled INTEGER DEFAULT 0, cancel_note TEXT, time_changed INTEGER DEFAULT 0, old_time TEXT, created_by TEXT, created INTEGER, updated INTEGER)`,
   `CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)`,
+  `CREATE TABLE IF NOT EXISTS invites (code TEXT PRIMARY KEY, from_user TEXT NOT NULL, created INTEGER, used_by TEXT, used_at INTEGER)`,
+  `CREATE TABLE IF NOT EXISTS invite_requests (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, status TEXT DEFAULT 'pending', created INTEGER)`,
   `CREATE TABLE IF NOT EXISTS feedback (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, anon INTEGER DEFAULT 0, text TEXT NOT NULL, seen INTEGER DEFAULT 0, created INTEGER)`,
   `CREATE INDEX IF NOT EXISTS ev_date ON events(date)`,
   `CREATE INDEX IF NOT EXISTS ev_place ON events(place_id)`,
@@ -51,7 +53,10 @@ const SCHEMA = [
 
 // Nýir dálkar í eldri gagnagrunni (villa = dálkurinn er þegar til).
 async function migrate(env) {
-  for (const sql of [`ALTER TABLE places ADD COLUMN cat TEXT DEFAULT ''`, `ALTER TABLE events ADD COLUMN genres TEXT DEFAULT '[]'`]) {
+  for (const sql of [`ALTER TABLE places ADD COLUMN cat TEXT DEFAULT ''`, `ALTER TABLE events ADD COLUMN genres TEXT DEFAULT '[]'`,
+    `ALTER TABLE users ADD COLUMN invited_by TEXT`, `ALTER TABLE users ADD COLUMN invites_left INTEGER DEFAULT 5`,
+    `ALTER TABLE users ADD COLUMN rules_ok INTEGER DEFAULT 0`, `ALTER TABLE users ADD COLUMN blocked INTEGER DEFAULT 0`,
+    `ALTER TABLE login_tokens ADD COLUMN invite TEXT`]) {
     try { await env.DB.prepare(sql).run(); } catch {}
   }
 }
@@ -205,7 +210,7 @@ async function currentUser(req, env) {
   const sid = getCookie(req, "sid") || req.headers.get("X-Session");
   if (!sid) return null;
   const row = await env.DB.prepare(
-    `SELECT u.id,u.email,u.name,u.is_owner FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.expires>?`
+    `SELECT u.id,u.email,u.name,u.is_owner,u.invites_left,u.rules_ok FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.expires>? AND COALESCE(u.blocked,0)=0`
   ).bind(await sha256(sid), now()).first();
   return row || null;
 }
@@ -220,6 +225,7 @@ async function sendMail(env, to, subject, text, html) {
   if (!r.ok) throw new Error("Resend " + r.status + " " + (await r.text()).slice(0, 200));
 }
 
+const NEED_INVITE = "Þú þarft boð frá einhverjum sem er þegar inni. Ef þú ert bara að leita að viðburðum til að fara á þarftu engan aðgang – aðgangur er aðeins fyrir þá sem setja inn viðburði.";
 async function apiLogin(req, env) {
   const b = await readJson(req);
   const email = str(b && b.email, 200).toLowerCase();
@@ -227,9 +233,19 @@ async function apiLogin(req, env) {
   const recent = await env.DB.prepare(`SELECT COUNT(*) n FROM login_tokens WHERE email=? AND created>?`)
     .bind(email, now() - 3600_000).first();
   if (recent && recent.n >= 5) return err("Of margar tilraunir. Prófaðu aftur eftir klukkutíma.", 429);
+  // Boðslyklar: nýtt netfang kemst bara inn með ónotuðum boðslykli (eigandinn alltaf).
+  const existing = await env.DB.prepare(`SELECT id,blocked FROM users WHERE email=?`).bind(email).first();
+  const isOwnerMail = env.OWNER_EMAIL && email === String(env.OWNER_EMAIL).trim().toLowerCase();
+  if (existing && existing.blocked) return err("Lokað hefur verið á þennan aðgang.", 403);
+  let invite = null;
+  if (!existing && !isOwnerMail) {
+    invite = str(b && b.invite, 40);
+    const inv = invite && (await env.DB.prepare(`SELECT code,used_by FROM invites WHERE code=?`).bind(invite).first());
+    if (!inv || inv.used_by) return err(NEED_INVITE, 403);
+  }
   const token = randomToken();
-  await env.DB.prepare(`INSERT INTO login_tokens (id,email,expires,created) VALUES (?,?,?,?)`)
-    .bind(await sha256(token), email, now() + LOGIN_TTL_MIN * 60_000, now()).run();
+  await env.DB.prepare(`INSERT INTO login_tokens (id,email,expires,created,invite) VALUES (?,?,?,?,?)`)
+    .bind(await sha256(token), email, now() + LOGIN_TTL_MIN * 60_000, now(), invite).run();
   const link = `${env.BASE_URL}${env.BASE_PATH}/api/verify?t=${token}`;
   const text = `Smelltu á hlekkinn til að skrá þig inn á Viðburði:\n\n${link}\n\nHlekkurinn virkar í ${LOGIN_TTL_MIN} mínútur og bara einu sinni.\nEf þú baðst ekki um þetta máttu hunsa þennan póst.`;
   const html = `<div style="font:16px/1.5 system-ui,sans-serif;color:#222"><p>Smelltu á takkann til að skrá þig inn á <b>Viðburði</b>:</p>
@@ -252,15 +268,23 @@ async function apiVerify(req, env, url) {
     new Response(null, { status: 302, headers: headersBase({ Location: `${env.BASE_PATH}/${msg ? "?login=" + msg : ""}` }) });
   if (!/^[0-9a-f]{64}$/.test(token)) return back("villa");
   const id = await sha256(token);
-  const row = await env.DB.prepare(`SELECT email,expires,used FROM login_tokens WHERE id=?`).bind(id).first();
+  const row = await env.DB.prepare(`SELECT email,expires,used,invite FROM login_tokens WHERE id=?`).bind(id).first();
   if (!row || row.used || row.expires < now()) return back("utrunnid");
   await env.DB.prepare(`UPDATE login_tokens SET used=1 WHERE id=?`).bind(id).run();
   const email = row.email;
   let user = await env.DB.prepare(`SELECT id FROM users WHERE email=?`).bind(email).first();
   const owner = env.OWNER_EMAIL && email === String(env.OWNER_EMAIL).trim().toLowerCase() ? 1 : 0;
   if (!user) {
+    let inviter = null;
+    if (!owner) {
+      // Boðslykillinn þarf enn að vera ónotaður (sá sem kemur fyrst fær hann).
+      const inv = row.invite && (await env.DB.prepare(`SELECT from_user,used_by FROM invites WHERE code=?`).bind(row.invite).first());
+      if (!inv || inv.used_by) return back("bodnotad");
+      inviter = inv.from_user;
+    }
     user = { id: newId("u") };
-    await env.DB.prepare(`INSERT INTO users (id,email,is_owner,created) VALUES (?,?,?,?)`).bind(user.id, email, owner, now()).run();
+    await env.DB.prepare(`INSERT INTO users (id,email,is_owner,created,invited_by) VALUES (?,?,?,?,?)`).bind(user.id, email, owner, now(), inviter).run();
+    if (row.invite) await env.DB.prepare(`UPDATE invites SET used_by=?,used_at=? WHERE code=?`).bind(user.id, now(), row.invite).run();
   } else if (owner) {
     await env.DB.prepare(`UPDATE users SET is_owner=1 WHERE id=?`).bind(user.id).run();
   }
@@ -315,8 +339,89 @@ async function apiMe(req, env, user) {
     user: { id: user.id, email: user.email, name: user.name, owner: !!user.is_owner },
     pages: pages.map((p) => ({ ...p, code: p.role === "admin" || user.is_owner ? p.code : undefined })),
     pending: await pendingCount(env, user.id),
+    invitesLeft: user.is_owner ? null : user.invites_left == null ? 5 : user.invites_left,
+    rulesOk: !!user.rules_ok,
+    inviteRequests: user.is_owner ? ((await env.DB.prepare(`SELECT COUNT(*) n FROM invite_requests WHERE status='pending'`).first()) || {}).n || 0 : 0,
     feedbackUnread: user.is_owner ? ((await env.DB.prepare(`SELECT COUNT(*) n FROM feedback WHERE seen=0`).first()) || {}).n || 0 : 0,
   });
+}
+
+/* ---------------- Boðslyklar ---------------- */
+// Hver notandi fær 5 boðslykla (eigandinn ótakmarkað). Hver lykill virkar einu sinni og síðan man hver bauð hverjum.
+function inviteCode() { const a = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; const b = crypto.getRandomValues(new Uint8Array(10)); return Array.from(b, (x) => a[x % a.length]).join(""); }
+async function apiInviteInfo(req, env, code) {
+  const r = await env.DB.prepare(`SELECT i.used_by,u.name,u.email FROM invites i LEFT JOIN users u ON u.id=i.from_user WHERE i.code=?`).bind(code).first();
+  if (!r) return json({ ok: false, error: "Þessi boðslykill fannst ekki." });
+  if (r.used_by) return json({ ok: false, error: "Þessi boðslykill hefur þegar verið notaður." });
+  return json({ ok: true, from: r.name || "" });
+}
+async function apiMyInvites(req, env, user) {
+  const r = await env.DB.prepare(
+    `SELECT i.code,i.created,i.used_at,u.name,u.email FROM invites i LEFT JOIN users u ON u.id=i.used_by WHERE i.from_user=? ORDER BY i.created DESC`
+  ).bind(user.id).all();
+  const req2 = await env.DB.prepare(`SELECT status FROM invite_requests WHERE user_id=? ORDER BY created DESC LIMIT 1`).bind(user.id).first();
+  return json({ items: r.results, left: user.is_owner ? null : user.invites_left == null ? 5 : user.invites_left, request: req2 ? req2.status : null });
+}
+async function apiCreateInvite(req, env, user) {
+  if (!user.is_owner) {
+    const left = user.invites_left == null ? 5 : user.invites_left;
+    if (left <= 0) return err("Þú átt enga boðslykla eftir. Þú getur beðið um fleiri.");
+    await env.DB.prepare(`UPDATE users SET invites_left=? WHERE id=?`).bind(left - 1, user.id).run();
+  }
+  const code = inviteCode();
+  await env.DB.prepare(`INSERT INTO invites (code,from_user,created) VALUES (?,?,?)`).bind(code, user.id, now()).run();
+  return json({ ok: true, code });
+}
+async function apiDeleteInvite(req, env, user, code) {
+  const r = await env.DB.prepare(`DELETE FROM invites WHERE code=? AND from_user=? AND used_by IS NULL`).bind(code, user.id).run();
+  if (r.meta && r.meta.changes && !user.is_owner) await env.DB.prepare(`UPDATE users SET invites_left=COALESCE(invites_left,5)+1 WHERE id=?`).bind(user.id).run();
+  return json({ ok: true });
+}
+async function apiRequestInvites(req, env, user) {
+  const open = await env.DB.prepare(`SELECT id FROM invite_requests WHERE user_id=? AND status='pending'`).bind(user.id).first();
+  if (!open) await env.DB.prepare(`INSERT INTO invite_requests (id,user_id,created) VALUES (?,?,?)`).bind(newId("ir"), user.id, now()).run();
+  return json({ ok: true });
+}
+async function apiRulesOk(req, env, user) {
+  await env.DB.prepare(`UPDATE users SET rules_ok=1 WHERE id=?`).bind(user.id).run();
+  return json({ ok: true });
+}
+// Eigandi: allir notendur (hver bauð hverjum), beiðnir um fleiri lykla, loka á notanda eða heila grein.
+async function apiAdminUsers(req, env, user) {
+  if (!user.is_owner) return err("Aðeins eigandi.", 403);
+  const u = await env.DB.prepare(`SELECT id,email,name,is_owner,invited_by,COALESCE(invites_left,5) invites_left,COALESCE(blocked,0) blocked,created FROM users ORDER BY created`).all();
+  const rq = await env.DB.prepare(`SELECT r.id,r.user_id,r.created,u.name,u.email FROM invite_requests r JOIN users u ON u.id=r.user_id WHERE r.status='pending' ORDER BY r.created`).all();
+  return json({ users: u.results, requests: rq.results });
+}
+async function apiAdminInviteRequest(req, env, user, id, action) {
+  if (!user.is_owner) return err("Aðeins eigandi.", 403);
+  const r = await env.DB.prepare(`SELECT user_id FROM invite_requests WHERE id=? AND status='pending'`).bind(id).first();
+  if (!r) return err("Beiðnin fannst ekki.", 404);
+  const stmts = [env.DB.prepare(`UPDATE invite_requests SET status=? WHERE id=?`).bind(action === "approve" ? "approved" : "rejected", id)];
+  if (action === "approve") stmts.push(env.DB.prepare(`UPDATE users SET invites_left=COALESCE(invites_left,0)+5 WHERE id=?`).bind(r.user_id));
+  await env.DB.batch(stmts);
+  return json({ ok: true });
+}
+async function apiAdminBlock(req, env, user, id, action) {
+  if (!user.is_owner) return err("Aðeins eigandi.", 403);
+  const all = (await env.DB.prepare(`SELECT id,invited_by,is_owner FROM users`).all()).results;
+  let ids = [id];
+  if (action === "block-branch" || action === "unblock-branch") {
+    // Allir sem viðkomandi bauð, og þeir sem þeir buðu o.s.frv.
+    for (let i = 0; i < ids.length; i++) for (const x of all) if (x.invited_by === ids[i] && !ids.includes(x.id)) ids.push(x.id);
+  }
+  ids = ids.filter((x) => !(all.find((y) => y.id === x) || {}).is_owner);
+  const block = action.startsWith("block");
+  const stmts = [];
+  for (const x of ids) {
+    stmts.push(env.DB.prepare(`UPDATE users SET blocked=? WHERE id=?`).bind(block ? 1 : 0, x));
+    if (block) {
+      stmts.push(env.DB.prepare(`DELETE FROM sessions WHERE user_id=?`).bind(x));
+      stmts.push(env.DB.prepare(`UPDATE events SET status='blocked' WHERE created_by=? AND status='approved'`).bind(x));
+    } else stmts.push(env.DB.prepare(`UPDATE events SET status='approved' WHERE created_by=? AND status='blocked'`).bind(x));
+  }
+  if (stmts.length) await env.DB.batch(stmts);
+  return json({ ok: true, count: ids.length });
 }
 
 /* ---------------- Athugasemdir prófara ---------------- */
@@ -559,6 +664,7 @@ async function venuePageOf(env, placeId) {
 }
 
 async function apiCreateEvent(req, env, user) {
+  if (!user.rules_ok) return err("Lestu reglurnar og samþykktu þær fyrst (á Mitt svæði).", 403);
   const b = await readJson(req);
   if (!b) return err("Ógild gögn.");
   const pageId = str(b.page_id, 60);
@@ -751,6 +857,7 @@ async function route(req, env, url, path) {
   if (path === "/api/places" && m === "GET") return apiPlaces(req, env);
   if (path === "/api/events" && m === "GET") return apiEvents(req, env, url);
   let mm;
+  if ((mm = path.match(/^\/api\/invite\/([A-Z0-9]+)$/)) && m === "GET") return apiInviteInfo(req, env, mm[1]);
   if ((mm = path.match(/^\/api\/events\/([\w-]+)$/)) && m === "GET") return apiEvent(req, env, mm[1]);
   if ((mm = path.match(/^\/api\/poster\/([\w.-]+)$/)) && m === "GET") return apiGetPoster(req, env, mm[1]);
 
@@ -781,6 +888,14 @@ async function route(req, env, url, path) {
   if ((mm = path.match(/^\/api\/requests\/([\w-]+)$/)) && m === "POST") return apiAnswerRequest(req, env, user, mm[1]);
   if (path === "/api/poster" && m === "POST") return apiUploadPoster(req, env, user);
   if (path === "/api/feedback" && m === "POST") return apiSendFeedback(req, env, user);
+  if (path === "/api/rules-ok" && m === "POST") return apiRulesOk(req, env, user);
+  if (path === "/api/invites" && m === "GET") return apiMyInvites(req, env, user);
+  if (path === "/api/invites" && m === "POST") return apiCreateInvite(req, env, user);
+  if (path === "/api/invites/request" && m === "POST") return apiRequestInvites(req, env, user);
+  if ((mm = path.match(/^\/api\/invites\/([A-Z0-9]+)$/)) && m === "DELETE") return apiDeleteInvite(req, env, user, mm[1]);
+  if (path === "/api/admin/users" && m === "GET") return apiAdminUsers(req, env, user);
+  if ((mm = path.match(/^\/api\/admin\/invite-requests\/([\w-]+)\/(approve|reject)$/)) && m === "POST") return apiAdminInviteRequest(req, env, user, mm[1], mm[2]);
+  if ((mm = path.match(/^\/api\/admin\/users\/([\w-]+)\/(block|unblock|block-branch|unblock-branch)$/)) && m === "POST") return apiAdminBlock(req, env, user, mm[1], mm[2]);
   if (path === "/api/feedback" && m === "GET") return apiListFeedback(req, env, user);
   if ((mm = path.match(/^\/api\/feedback\/([\w-]+)\/(seen|unseen|delete)$/)) && m === "POST") return apiFeedbackAction(req, env, user, mm[1], mm[2]);
   return err("Fannst ekki.", 404);

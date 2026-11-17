@@ -242,3 +242,11 @@ details.paste textarea{margin:10px 0}
 .ev2.live{border-color:#3fae6a}
 .ev2.live .when{background:#1f4a32;color:#d6f5e2}
 .livel{display:inline-block;background:#2e8b57;color:#fff;font-size:13px;font-weight:800;border-radius:6px;padding:1px 7px;vertical-align:2px}
+/* Reglur og boðslyklar */
+.rules{list-style:none;padding:0;margin:14px 0 18px;display:flex;flex-direction:column;gap:10px}
+.rules li{display:grid;grid-template-columns:30px 1fr;gap:8px;font-size:16.5px;line-height:1.4}
+.rules li span:first-child{font-size:20px}
+.invnote{margin-bottom:12px;font-size:16.5px}
+.card.inv code{display:block;word-break:break-all;font-size:14px;color:#ead8d1;margin-bottom:8px}
+.urow{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line)}
+.urow.blocked{opacity:.6}

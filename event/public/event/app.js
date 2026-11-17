@@ -874,7 +874,8 @@ function openCal(cur, opts = {}) {
 
 /* ---------- Innskráning ---------- */
 function loginHtml() {
-  return `<h2>Mitt svæði</h2>
+  const inv = store.get('inv'), from = store.get('invFrom');
+  return `${inv ? `<div class="note invnote">🎁 <b>Þér hefur verið boðið${from ? ' af ' + esc(from) : ''}!</b> Skrifaðu netfangið þitt og þú færð innskráningarhlekk.</div>` : ''}<h2>Mitt svæði</h2>
   <p>Hér setja staðir, bönd og félög inn viðburði. Þú þarft ekki að skrá þig inn til að skoða.</p>
   <form id="loginForm"><div class="f"><label>Netfangið þitt</label><input type="email" name="email" required autocomplete="email" placeholder="nafn@dæmi.is"></div>
   <button class="btn primary big">📧 Senda mér innskráningarhlekk</button>
@@ -887,22 +888,97 @@ function wireLogin(root) {
     ev.preventDefault();
     const btn = f.querySelector('button'); btn.disabled = true;
     try {
-      await api('/login', { method: 'POST', body: { email: f.email.value } });
+      await api('/login', { method: 'POST', body: { email: f.email.value, invite: store.get('inv') || '' } });
       root.querySelector('#loginMsg').innerHTML = `<div class="note">✅ Póstur sendur á <b>${esc(f.email.value)}</b>. Opnaðu hann og smelltu á hlekkinn. (Kíktu í ruslpóstinn ef hann kemur ekki.)</div>`;
     } catch (e) { root.querySelector('#loginMsg').innerHTML = `<p class="err">${esc(e.message)}</p>`; btn.disabled = false; }
   };
 }
 
+/* ---------- Reglur (við fyrstu innskráningu) ---------- */
+const RULES = [
+  ['🎟️', 'Bara alvöru viðburðir. Ef þú setur inn bull getur stjórnandi bannað þig – og jafnvel þann sem bauð þér inn. Ekki vera fáviti.'],
+  ['🤝', 'Verum næs.'],
+  ['🔑', 'Bjóddu bara þeim sem auglýsa viðburði – tónlistarfólki, börum, veitingahúsum, félögum – og þú treystir. Þú berð ábyrgð á þeim. Þeir sem bara skoða síðuna þurfa engan aðgang.'],
+  ['🍺', 'Engar áfengisauglýsingar (t.d. ekkert happy hour eða bjór á tilboði).'],
+  ['🕘', 'Haltu viðburðunum þínum réttum. Breyttu eða aflýstu ef eitthvað breytist. Settu inn lokatíma ef hægt er – það er betra að giska (t.d. 23:30) en að sleppa honum.'],
+  ['📢', 'Bara viðburðir, engin önnur sala. Það má segja hvar miðar fást og setja hlekk á t.d. tix.is, midix.is eða svid.is.'],
+  ['🚩', 'Sérðu bull? Láttu vita.'],
+];
+const rulesHtml = () => `<ol class="rules">${RULES.map(([e, t]) => `<li><span>${e}</span><span>${esc(t)}</span></li>`).join('')}</ol>`;
+function showRules() {
+  if (document.querySelector('.rulesModal')) return;
+  const m = openModal(`<div class="rulesModal"><h2>Velkomin(n)! 👋</h2><p>Þessi síða er fyrir alla – litla bæinn, litlu hljómsveitina og stóra staðinn. Hún virkar bara ef við pössum hana saman:</p>
+    ${rulesHtml()}<button class="btn primary big" id="rulesOk">✅ Ég er með</button></div>`, { onClose: () => { if (!ME.rulesOk) showPublic(); } });
+  m.el.querySelector('#rulesOk').onclick = async () => {
+    try { await api('/rules-ok', { method: 'POST' }); ME.rulesOk = true; m.close(); toast('Takk! Velkomin(n) 🎉'); } catch (e) { toast(e.message, true); }
+  };
+}
+
+/* ---------- Boðslyklar ---------- */
+const INVITE_NOTE = 'Boðslyklar eru bara fyrir þá sem setja inn viðburði, ekki fyrir þá sem nota síðuna til að skoða hvað er á döfinni. Bjóðum bara þeim sem auglýsa viðburði: tónlistarfólki, börum, veitingahúsum o.s.frv.';
+const inviteUrl = (c) => location.origin + BASE + '/?inv=' + c;
+async function loadInvites() {
+  const box = $('invBox');
+  if (!box) return;
+  let r;
+  try { r = await api('/invites'); } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  const left = r.left;
+  const open = r.items.filter((x) => !x.used_at), used = r.items.filter((x) => x.used_at);
+  box.innerHTML = `<p class="role">${esc(INVITE_NOTE)}</p>
+    <p>${left == null ? 'Þú getur boðið eins mörgum og þú vilt.' : `Þú átt <b>${left}</b> ${left === 1 ? 'boðslykil' : 'boðslykla'} eftir.`}</p>
+    <div class="row">${left == null || left > 0 ? '<button class="btn primary" id="invNew">🎁 Búa til boðshlekk</button>' : ''}
+    ${left != null && left <= 1 ? (r.request === 'pending' ? '<span class="role">⏳ Beiðni um fleiri boðslykla bíður samþykkis.</span>' : '<button class="btn" id="invMore">➕ Biðja um fleiri boðslykla</button>') : ''}</div>
+    ${open.length ? `<h3>Ónotaðir boðshlekkir</h3>${open.map((x) => `<div class="card inv"><code>${esc(inviteUrl(x.code))}</code>
+      <div class="row"><button class="btn sm" data-copy="${x.code}">📋 Afrita</button><button class="btn sm ghost" data-del="${x.code}">Hætta við</button></div></div>`).join('')}` : ''}
+    ${used.length ? `<h3>Komnir inn í gegnum þig</h3>${used.map((x) => `<div class="role">✅ ${esc(x.name || x.email || '')} · ${esc(fmtLong(iso(new Date(x.used_at))))}</div>`).join('')}` : ''}`;
+  const nb = $('invNew');
+  if (nb) nb.onclick = async () => {
+    try { const c = (await api('/invites', { method: 'POST' })).code; await copyText(inviteUrl(c)); toast('🎁 Boðshlekkur búinn til og afritaður. Sendu hann t.d. á Messenger.'); loadInvites(); }
+    catch (e) { toast(e.message, true); }
+  };
+  const mb = $('invMore');
+  if (mb) mb.onclick = async () => { try { await api('/invites/request', { method: 'POST' }); toast('Beiðnin er send.'); loadInvites(); } catch (e) { toast(e.message, true); } };
+  box.querySelectorAll('[data-copy]').forEach((b) => (b.onclick = async () => { await copyText(inviteUrl(b.dataset.copy)); toast('📋 Afritað'); }));
+  box.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => { try { await api('/invites/' + b.dataset.del, { method: 'DELETE' }); loadInvites(); } catch (e) { toast(e.message, true); } }));
+}
+async function copyText(t) { try { await navigator.clipboard.writeText(t); } catch (_e) { prompt('Afritaðu hlekkinn:', t); } }
+// Eigandi: beiðnir um fleiri lykla og hver bauð hverjum (hægt að loka á notanda eða heila grein).
+async function loadUsersAdmin() {
+  const box = $('usersBox');
+  if (!box) return;
+  let r;
+  try { r = await api('/admin/users'); } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  const kids = {};
+  r.users.forEach((u) => { (kids[u.invited_by || ''] = kids[u.invited_by || ''] || []).push(u); });
+  const ids = new Set(r.users.map((u) => u.id));
+  const roots = r.users.filter((u) => !u.invited_by || !ids.has(u.invited_by));
+  const row = (u, d) => `<div class="urow ${u.blocked ? 'blocked' : ''}" style="margin-left:${Math.min(d, 6) * 18}px">
+      <span>${d ? '↳ ' : ''}${u.blocked ? '🚫 ' : ''}<b>${esc(u.name || u.email)}</b> <span class="role">${u.name ? esc(u.email) : ''}${u.is_owner ? ' · eigandi' : ` · ${u.invites_left} lyklar eftir`}</span></span>
+      ${u.is_owner ? '' : `<span class="row">${u.blocked ? `<button class="btn sm" data-ub="${u.id}" data-a="unblock">Opna</button>` : `<button class="btn sm ghost danger" data-ub="${u.id}" data-a="block">🚫 Loka</button>`}
+      ${(kids[u.id] || []).length ? `<button class="btn sm ghost danger" data-ub="${u.id}" data-a="${u.blocked ? 'unblock-branch' : 'block-branch'}">${u.blocked ? 'Opna alla greinina' : '🚫 Loka á alla greinina'}</button>` : ''}</span>`}</div>`;
+  const tree = (list, d) => list.map((u) => row(u, d) + tree(kids[u.id] || [], d + 1)).join('');
+  box.innerHTML = `${r.requests.length ? `<h3>➕ Beiðnir um fleiri boðslykla</h3>${r.requests.map((q) => `<div class="card"><b>${esc(q.name || q.email)}</b> <span class="role">${esc(q.email)}</span>
+      <div class="row"><button class="btn sm primary" data-rq="${q.id}" data-a="approve">✓ Gefa 5 í viðbót</button><button class="btn sm ghost" data-rq="${q.id}" data-a="reject">✕ Hafna</button></div></div>`).join('')}` : ''}
+    <h3>👥 Notendur – hver bauð hverjum</h3>${tree(roots, 0)}`;
+  box.querySelectorAll('[data-rq]').forEach((b) => (b.onclick = async () => { try { await api(`/admin/invite-requests/${b.dataset.rq}/${b.dataset.a}`, { method: 'POST' }); await loadMe(); loadUsersAdmin(); } catch (e) { toast(e.message, true); } }));
+  box.querySelectorAll('[data-ub]').forEach((b) => (b.onclick = async () => {
+    const a = b.dataset.a;
+    if (a.startsWith('block') && !confirm(a === 'block-branch' ? 'Loka á þennan notanda OG alla sem hann bauð inn (og þá sem þeir buðu)? Viðburðir þeirra hverfa af síðunni.' : 'Loka á þennan notanda? Viðburðir hans hverfa af síðunni.')) return;
+    try { const x = await api(`/admin/users/${b.dataset.ub}/${a}`, { method: 'POST' }); toast(`${a.startsWith('block') ? '🚫 Lokað' : '✅ Opnað'} (${x.count})`); loadUsersAdmin(); } catch (e) { toast(e.message, true); }
+  }));
+}
+
 /* ---------- Mitt svæði ---------- */
 async function loadMe() {
   try { ME = await api('/me'); } catch (_e) { ME = { user: null }; }
-  const n = ME.user ? ME.pending + (ME.feedbackUnread || 0) : 0;
+  const n = ME.user ? ME.pending + (ME.feedbackUnread || 0) + (ME.inviteRequests || 0) : 0;
   $('mineBadge').textContent = n; $('mineBadge').classList.toggle('hidden', !n);
 }
 function showPublic() { $('publicView').classList.remove('hidden'); $('mineView').classList.add('hidden'); $('dateChips').classList.remove('hidden'); if (map) { map.resize(); if (!F.inView && !F.placeId && !F.sel) fitIceland(); } }
 async function showMine() {
   $('publicView').classList.add('hidden'); $('mineView').classList.remove('hidden'); $('dateChips').classList.add('hidden');
   await renderMine();
+  if (ME.user && !ME.rulesOk) showRules();
 }
 $('mineBtn').onclick = showMine;
 // Hæð hausins (fyrir fastar dagsfyrirsagnir og hæð síðunnar í tölvu).
@@ -965,6 +1041,11 @@ async function renderMine() {
 
    ${u.owner ? `<div class="sec" id="fbOwner"><h2>💬 Athugasemdir frá prófurum</h2><div id="fbList"><p class="role">Hleð…</p></div></div>` : ''}
 
+   ${u.owner ? `<div class="sec"><h2>👥 Notendur og boðslyklar</h2><div id="usersBox"><p class="role">Hleð…</p></div></div>` : ''}
+
+   <div class="sec" id="invSec"><h2>🎁 Bjóða einhverjum</h2><div id="invBox"><p class="role">Hleð…</p></div>
+     <details class="paste"><summary>📜 Reglurnar</summary>${rulesHtml()}</details></div>
+
    <div class="sec" id="fbSec"><h2>💬 Senda athugasemd</h2>
      <form id="fbForm" class="card"><label>Hvað mætti laga eða bæta við síðuna?</label>
        <textarea name="text" rows="4" maxlength="4000" placeholder="Skrifaðu hér…"></textarea>
@@ -1000,7 +1081,8 @@ async function renderMine() {
     try { await api('/feedback', { method: 'POST', body: { text: f.elements.text.value, anon: f.anon.checked } }); f.reset(); toast('✅ Takk! Athugasemdin er komin til skila.'); if (u.owner) loadFeedback(); }
     catch (e) { toast(e.message, true); }
   };
-  if (u.owner) loadFeedback();
+  if (u.owner) { loadFeedback(); loadUsersAdmin(); }
+  loadInvites();
   if (store.get('goFeedback')) { store.set('goFeedback', null); setTimeout(() => { $('fbSec').scrollIntoView({ behavior: 'smooth' }); $('fbForm').elements.text.focus(); }, 50); }
   $('logoutBtn').onclick = async () => { await api('/logout', { method: 'POST' }); store.set('sid', null); ME = null; await renderMine(); };
   const ne = $('newEv'); if (ne) ne.onclick = () => openEventForm(null);
@@ -1513,13 +1595,22 @@ function applyLang() {
   renderAll();
   renderSideAd();
   initMap();
-  loadMe();
+  await loadMe();
   const sp = new URLSearchParams(location.search);
+  const inv = sp.get('inv');
+  if (inv) {
+    history.replaceState(null, '', BASE + '/');
+    try {
+      const r = await api('/invite/' + encodeURIComponent(inv));
+      if (r.ok) { store.set('inv', inv); store.set('invFrom', r.from || ''); if (!ME.user) showMine(); else toast('Þú ert þegar með aðgang 🙂'); }
+      else toast(r.error, true);
+    } catch (e) { toast(e.message, true); }
+  }
   const lg = sp.get('login');
   if (lg) {
     history.replaceState(null, '', BASE + '/');
-    if (lg === 'ok') { toast('✅ Þú ert innskráð(ur)'); showMine(); }
-    else toast(lg === 'utrunnid' ? 'Hlekkurinn er útrunninn eða búið að nota hann. Biddu um nýjan.' : 'Innskráning tókst ekki.', true);
+    if (lg === 'ok') { store.set('inv', null); store.set('invFrom', null); toast('✅ Þú ert innskráð(ur)'); showMine(); }
+    else toast(lg === 'utrunnid' ? 'Hlekkurinn er útrunninn eða búið að nota hann. Biddu um nýjan.' : lg === 'bodnotad' ? 'Boðslykillinn hefur þegar verið notaður. Biddu um nýjan.' : 'Innskráning tókst ekki.', true);
   }
   if (sp.get('e')) openEvent(sp.get('e'));
   else if (isMobile() && !lg) showHome();
