@@ -26,6 +26,14 @@ export async function contactsSchema(env) {
       env.DB.prepare(`INSERT OR REPLACE INTO meta (k,v) VALUES ('contacts_rule','2')`),
     ]);
   }
+  // Regla 3: staðir sem Google fann ekki heimasíðu fyrir eru spurðir aftur (einu sinni) með rýmri reglu.
+  const r3 = await env.DB.prepare(`SELECT v FROM meta WHERE k='contacts_google2'`).first();
+  if (!r3) {
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE places SET contact_checked=0 WHERE web='' AND email=''`),
+      env.DB.prepare(`INSERT OR REPLACE INTO meta (k,v) VALUES ('contacts_google2','1')`),
+    ]);
+  }
   const row = await env.DB.prepare(`SELECT v FROM meta WHERE k='contacts_osm'`).first();
   if (row && row.v === "1") return;
   const stmts = Object.entries(OSM_CONTACTS).map(([id, [email, web, fb, phone]]) =>
@@ -54,7 +62,8 @@ async function googleWebsite(env, p) {
     if (!g.websiteUri || !g.location) continue;
     const d = distM(p.lat, p.lon, g.location.latitude, g.location.longitude);
     const sim = nameSim(p.name, g.displayName && g.displayName.text);
-    if ((d <= 300 && sim >= 0.5) || d <= 60) return g.websiteUri;
+    // Rýmra (17. nóv): nafnið passar og innan 800 m, eða alveg við punktinn (100 m).
+    if ((d <= 800 && sim >= 0.5) || d <= 100) return g.websiteUri;
   }
   return "";
 }
