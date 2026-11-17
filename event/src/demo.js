@@ -123,6 +123,32 @@ export async function createDemo(env, todayISO) {
         "🧪 Prufuviðburður – ekki raunverulegur. Hér kæmi lýsing frá staðnum eða bandinu.", "", "approved", 0, "", 0, "", now, now));
     }
   }
+  // Prufuhátíðir: bæjarhátíð í gangi núna (með böllum/tónleikum sem eru „hluti af“) og tónleikahátíð eftir rúma viku.
+  const INS = `INSERT OR REPLACE INTO events (id,place_id,page_id,title,date,end_date,url,festival_id,time,end_time,price,ticket,door,age,age_text,tags,genres,other_label,fam,descr,poster,status,cancelled,cancel_note,time_changed,old_time,created,updated)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+  const byTown = {};
+  for (const p of places) if (p.town) (byTown[p.town] = byTown[p.town] || []).push(p);
+  const towns = Object.entries(byTown).filter(([, ps]) => ps.length >= 3).map(([t]) => t);
+  const fest = (id, town, title, from, to, sub, url, descr) => {
+    const pl = byTown[town][0];
+    stmts.push(env.DB.prepare(INS).bind(id, pl.id, pick(groups).id, title, addDays(from), addDays(to), url, "", "14:00", "", 0, "", 0, "", "",
+      JSON.stringify(["hatid", sub]), "[]", "", 1, descr, "", "approved", 0, "", 0, "", now, now));
+    return byTown[town];
+  };
+  if (towns.length >= 2) {
+    const ps1 = fest("demo-f-1", towns[0], "Fjarðadagar", -1, 2, "baejarhatid", "https://example.com/fjardadagar",
+      "🧪 Prufuhátíð. Bæjarhátíð með tónleikum, böllum, uppistandi og alls konar fjöri um allan bæ.");
+    const subs = [[0, "20:00", "23:00", "tonleikar", "Fjarðadagatónleikar"], [1, "23:00", "03:00", "ball", "Stórdansleikur Fjarðadaga"], [1, "16:00", "17:30", "uppistand", "Uppistand á Fjarðadögum"]];
+    subs.forEach(([d, t, et, tag, title], i) => {
+      const music = tag !== "uppistand";
+      stmts.push(env.DB.prepare(INS).bind(`demo-fs-${i}`, ps1[(i + 1) % ps1.length].id, (music ? pick(bandsOnly) : pick(groups)).id, title, addDays(d), "", "", "demo-f-1", t, et,
+        tag === "ball" ? 4500 : 0, "", tag === "ball" ? 1 : 0, tag === "ball" ? "18" : "", "",
+        JSON.stringify(music ? ["tonlist", tag] : [tag]), "[]", "", tag === "uppistand" ? 1 : 0, "🧪 Prufuviðburður – hluti af prufuhátíðinni Fjarðadögum.", "", "approved", 0, "", 0, "", now, now));
+    });
+    fest("demo-f-2", towns[1], "Norðanrokk", 9, 11, "tonleikahatid", "https://example.com/nordanrokk",
+      "🧪 Prufuhátíð. Þriggja daga rokkhátíð með fjölda hljómsveita.");
+    n += 5;
+  }
   for (let i = 0; i < stmts.length; i += 90) await env.DB.batch(stmts.slice(i, i + 90));
   return { places: chosen.size, pages: bands.length, events: n };
 }

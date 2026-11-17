@@ -15,7 +15,16 @@ let TODAY = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; })(
    annars 3 klst. eftir byrjun; kvöldviðburðir (frá kl. 18) a.m.k. til kl. 03 um nóttina. */
 const hm = (t) => { const m = /^(\d{1,2})[:.](\d{2})/.exec(t || ''); return m ? [+m[1], +m[2]] : null; };
 function evStart(e) { const d = new Date(e.date + 'T00:00:00'); const t = hm(e.time); if (t) d.setHours(t[0], t[1], 0, 0); return d; }
+/* Hátíðir: standa frá date til end_date. */
+const isFest = (e) => (e.tags || []).includes('hatid');
+const festEnd = (e) => e.end_date || e.date;
+const daysBetween = (a, b) => Math.round((parseISO(b) - parseISO(a)) / 864e5);
 function evEnd(e) {
+  if (e.end_date) { // marga daga: til lokatíma síðasta dagsins, annars til kl. 03 nóttina eftir
+    const d = new Date(e.end_date + 'T00:00:00'), et2 = hm(e.end_time);
+    if (et2 && et2[0] >= 5) d.setHours(et2[0], et2[1], 0, 0); else { d.setDate(d.getDate() + 1); d.setHours(et2 ? et2[0] : 3, et2 ? et2[1] : 0, 0, 0); }
+    return d;
+  }
   const s = evStart(e), t = hm(e.time), et = hm(e.end_time);
   if (et) { const d = new Date(e.date + 'T00:00:00'); d.setHours(et[0], et[1], 0, 0); if (d <= s) d.setDate(d.getDate() + 1); return d; }
   if (!t) { const d = new Date(e.date + 'T00:00:00'); d.setDate(d.getDate() + 1); return d; } // enginn tími: allur dagurinn
@@ -33,15 +42,15 @@ let lang = store.get('lang', 'is');
 const L = (is, en) => (lang === 'en' && en !== undefined ? en : is);
 
 // Flokkar: aðalflokkar, og undirflokkar fyrir Tónlist og Leikhús.
-const SUBS = { tonlist: ['tonleikar', 'ball', 'dj', 'trubador', 'tonlist_annad'], leikhus: ['leiksyning', 'songleikur', 'barnaleikrit', 'dans', 'leikhus_annad'] };
-const TOPS = ['tonlist', 'leikhus', 'uppistand', 'pubquiz', 'list', 'annad'];
+const SUBS = { tonlist: ['tonleikar', 'ball', 'dj', 'trubador', 'tonlist_annad'], leikhus: ['leiksyning', 'songleikur', 'barnaleikrit', 'dans', 'leikhus_annad'], hatid: ['tonleikahatid', 'baejarhatid'] };
+const TOPS = ['tonlist', 'leikhus', 'uppistand', 'pubquiz', 'list', 'hatid', 'annad'];
 const PARENT = {}; Object.entries(SUBS).forEach(([t, xs]) => xs.forEach((x) => (PARENT[x] = t)));
 const TAGS = TOPS;
 const TAGL = {
-  is: { tonlist: 'Tónlist', leikhus: 'Leikhús', uppistand: 'Uppistand', pubquiz: 'Pub quiz', list: 'List', annad: 'Annað',
+  is: { tonlist: 'Tónlist', leikhus: 'Leikhús', uppistand: 'Uppistand', pubquiz: 'Pub quiz', list: 'List', annad: 'Annað', hatid: 'Hátíð', tonleikahatid: 'Tónleikahátíð', baejarhatid: 'Bæjarhátíð',
     tonleikar: 'Tónleikar', ball: 'Ball', dj: 'DJ', trubador: 'Trúbador', tonlist_annad: 'Annað',
     leiksyning: 'Leiksýning', songleikur: 'Söngleikur', barnaleikrit: 'Barnaleikrit', dans: 'Dans', leikhus_annad: 'Annað' },
-  en: { tonlist: 'Music', leikhus: 'Theatre', uppistand: 'Comedy', pubquiz: 'Pub quiz', list: 'Art', annad: 'Other',
+  en: { tonlist: 'Music', leikhus: 'Theatre', uppistand: 'Comedy', pubquiz: 'Pub quiz', list: 'Art', annad: 'Other', hatid: 'Festival', tonleikahatid: 'Music festival', baejarhatid: 'Town festival',
     tonleikar: 'Concert', ball: 'Dance (ball)', dj: 'DJ', trubador: 'Troubadour', tonlist_annad: 'Other',
     leiksyning: 'Play', songleikur: 'Musical', barnaleikrit: "Children's play", dans: 'Dance', leikhus_annad: 'Other' },
 };
@@ -50,7 +59,7 @@ const GENL = {
   is: { rokk: 'Rokk', metall: 'Metall', ponk: 'Pönk', popp: 'Popp', hiphop: 'Hip hop', raf: 'Raftónlist', djass: 'Djass', blus: 'Blús', kantri: 'Kántrí', thjodlaga: 'Þjóðlagatónlist', trubador: 'Trúbador', klassik: 'Klassík', kor: 'Kór', abreidur: 'Ábreiður' },
   en: { rokk: 'Rock', metall: 'Metal', ponk: 'Punk', popp: 'Pop', hiphop: 'Hip hop', raf: 'Electronic', djass: 'Jazz', blus: 'Blues', kantri: 'Country', thjodlaga: 'Folk', trubador: 'Singer-songwriter', klassik: 'Classical', kor: 'Choir', abreidur: 'Covers' },
 };
-const KINDS = { band: 'Hljómsveit / listamaður', group: 'Kór, félag eða leikfélag', venue: 'Staður' };
+const KINDS = { band: 'Hljómsveit / listamaður', group: 'Félag / hátíð / skipuleggjandi (kór, leikfélag o.fl.)', venue: 'Staður' };
 const MN_IS = ['janúar', 'febrúar', 'mars', 'apríl', 'maí', 'júní', 'júlí', 'ágúst', 'september', 'október', 'nóvember', 'desember'];
 const DN_IS = ['sunnudagur', 'mánudagur', 'þriðjudagur', 'miðvikudagur', 'fimmtudagur', 'föstudagur', 'laugardagur'];
 const MN_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -113,6 +122,8 @@ function typeMatch(e) {
   if (SF.free && e.price !== 0) return false;
   if (!SF.tags.size) return true; // „Allt“
   const et = e.tags || [];
+  // Tónleikahátíð birtist líka undir Tónlist (nema þrengt sé niður í t.d. Ball eða stefnu).
+  if (SF.tags.has('tonlist') && et.includes('tonleikahatid') && !SUBS.tonlist.some((x) => SF.tags.has(x)) && !SF.genres.size) return true;
   return TOPS.some((top) => {
     if (!SF.tags.has(top) || !et.includes(top)) return false;
     const subs = (SUBS[top] || []).filter((x) => SF.tags.has(x));
@@ -254,7 +265,10 @@ function norm(s) { return String(s || '').toLowerCase().normalize('NFD').replace
 // allRegions: kortið sýnir alltaf allt landið; valinn landshluti síar bara listann.
 function eventsInDates(allRegions) {
   const [a, b] = dateRange();
-  return EVENTS.filter((e) => { const k = dayKey(e); return k >= a && k <= b && !isOver(e) && typeMatch(e) && (allRegions || regionMatch(e)); });
+  return EVENTS.filter((e) => {
+    const inRange = e.end_date ? e.date <= b && e.end_date >= a : (() => { const k = dayKey(e); return k >= a && k <= b; })();
+    return inRange && !isOver(e) && typeMatch(e) && (allRegions || regionMatch(e));
+  });
 }
 function textMatch(e, q) {
   const p = PLACE[e.place_id] || {};
@@ -281,15 +295,17 @@ function evRow(e) {
   const d = parseISO(e.date);
   const today = e.date === iso(TODAY), tmrw = e.date === iso(addDays(TODAY, 1));
   const dow = today ? L('Í DAG', 'TODAY') : tmrw ? L('Á MORGUN', 'TMRW') : (lang === 'en' ? DOW_EN : DOW_IS)[d.getDay()];
-  const meta = ['📍 ' + placeLabel(p), priceStr(e) && '💰 ' + priceStr(e), e.door && '🚪 ' + L('við hurð', 'at the door'), ageStr(e) && '🔞 ' + ageStr(e)].filter(Boolean);
+  const fest = e.festival_id && EVENTS.find((x) => x.id === e.festival_id);
+  const meta = [fest && '🎪 ' + L('Hluti af ', 'Part of ') + fest.title, '📍 ' + placeLabel(p), priceStr(e) && '💰 ' + priceStr(e), e.door && '🚪 ' + L('við hurð', 'at the door'), ageStr(e) && '🔞 ' + ageStr(e)].filter(Boolean);
+  const multi = isFest(e) && e.end_date;
   // Dagurinn stendur í fyrirsögn yfir hópnum; hér bara tíminn. Staður, verð og aldur í einni línu
   // (hver hluti brotnar ekki í sundur). Merkin sjást þegar viðburður er opnaður.
   const live = isLive(e);
-  return `<button class="ev2 ${e.cancelled ? 'cx' : ''} ${live ? 'live' : ''}" data-ev="${e.id}">
-    <span class="when"><span class="tm">${esc(e.time)}</span></span>
+  return `<button class="ev2 ${e.cancelled ? 'cx' : ''} ${live ? 'live' : ''} ${isFest(e) ? 'fest' : ''}" data-ev="${e.id}">
+    <span class="when"><span class="tm">${multi && dayKey(e) > e.date ? `<small style="font-size:13px">${L('Dagur', 'Day')} ${daysBetween(e.date, dayKey(e)) + 1}</small>` : esc(e.time)}</span></span>
     <span class="body">
-      <span class="ti">${e.cancelled ? `<span class="cxl">${L('AFLÝST', 'CANCELLED')}</span> ` : ''}${live ? `<span class="livel">● ${L('Í gangi', 'On now')}</span> ` : ''}${esc(e.title)}</span>
-      <span class="ln">${meta.map((x) => `<span class="nw">${esc(x)}</span>`).join(' · ')}</span>
+      <span class="ti">${e.cancelled ? `<span class="cxl">${L('AFLÝST', 'CANCELLED')}</span> ` : ''}${live ? `<span class="livel">● ${L('Í gangi', 'On now')}</span> ` : ''}${isFest(e) ? '🎪 ' : ''}${esc(e.title)}${multi ? ` <span class="fdays">${daysBetween(e.date, e.end_date) + 1} ${L('dagar', 'days')} · ${L('til', 'until')} ${esc(fmtShort(e.end_date))}</span>` : ''}</span>
+      <span class="ln">${meta.map((x) => (x.length < 26 ? `<span class="nw">${esc(x)}</span>` : esc(x))).join(' · ')}</span>
       ${e.time_changed ? `<span class="ln chg">🕘 ${L('Breyttur tími', 'Time changed')}</span>` : ''}
     </span>
     ${e.poster ? `<img src="${posterUrl(e.poster)}" alt="" loading="lazy">` : ''}</button>`;
@@ -319,17 +335,34 @@ function adHtml(i, kind) {
 function renderSideAd() { const el = $('adSide'); if (el) el.innerHTML = adHtml(ADS.length - 1, 'box'); }
 function renderList() {
   const list = visibleEvents();
+  // Hátíðir: stórt spjald fyrsta daginn sem sést, svo bara mjó lína hina dagana („dagur 2 af 4“).
+  const [ra, rb] = dateRange();
+  const items = [];
+  for (const e of list) {
+    if (!e.end_date) { items.push({ k: dayKey(e), t: e.time || '', e }); continue; }
+    const first = [e.date, ra, iso(TODAY)].sort()[2], last = e.end_date < rb ? e.end_date : rb, total = daysBetween(e.date, e.end_date) + 1;
+    items.push({ k: first, t: e.time || '', e });
+    for (let d = iso(addDays(parseISO(first), 1)), n = 0; d <= last && n < 21; d = iso(addDays(parseISO(d), 1)), n++) items.push({ k: d, t: '', slim: true, e, n: daysBetween(e.date, d) + 1, total });
+  }
+  items.sort((x, y) => (x.k < y.k ? -1 : x.k > y.k ? 1 : (y.slim ? 1 : 0) - (x.slim ? 1 : 0) || (x.t < y.t ? -1 : x.t > y.t ? 1 : 0)));
   // Hópað eftir dögum; fyrirsögn dagsins festist efst þar til næsti dagur ýtir henni upp.
-  let html = '', day = null, ai = 0;
-  list.forEach((e, i) => {
-    if (dayKey(e) !== day) {
+  let html = '', day = null, ai = 0, full = 0;
+  const fulls = items.filter((x) => !x.slim).length;
+  items.forEach((it) => {
+    if (it.k !== day) {
       if (day !== null) html += '</section>';
-      day = dayKey(e);
+      day = it.k;
       const [a, b] = dayLabel(day);
       html += `<section class="day"><h3 class="dh ${day === iso(TODAY) ? 'today' : ''}">${esc(a)}${b ? ` <small>${esc(b)}</small>` : ''}</h3>`;
     }
-    html += evRow(e);
-    if ((i + 1) % 5 === 0 && i + 1 < list.length) html += adHtml(ai++);
+    if (it.slim) {
+      const p = PLACE[it.e.place_id] || {};
+      html += `<button class="fline" data-ev="${it.e.id}">🎪 <b>${esc(it.e.title)}</b> – ${L('dagur', 'day')} ${it.n} ${L('af', 'of')} ${it.total}<span class="r">${esc(p.town || p.name || '')} ›</span></button>`;
+      return;
+    }
+    html += evRow(it.e);
+    full++;
+    if (full % 5 === 0 && full < fulls) html += adHtml(ai++);
   });
   if (day !== null) html += '</section>';
   $('list').innerHTML = html || `<div class="empty">${L('Engir viðburðir fundust.', 'No events found.')}${F.inView || F.placeId || F.sel || F.q ? '' : '<br>' + L('Vertu fyrst(ur) til að setja inn viðburð!', 'Be the first to post an event!')}</div>`;
@@ -816,14 +849,16 @@ function eventDetailHtml(e) {
    <div class="role">${esc(e.page_name)}</div>
    ${e.poster ? `<img class="poster" src="${posterUrl(e.poster)}" alt="">` : ''}
    <div class="kv">
-    <div>📅 ${L('Hvenær', 'When')}</div><div>${esc(fmtLong(e.date))}, ${L('kl.', '')} ${timeStr(e)}${e.time_changed && e.old_time ? `<br><span class="chg">${L('Breyttur tími', 'Time changed')}</span> <s class="role">${esc(fmtShort(e.old_time.slice(0, 10)))} ${esc(e.old_time.slice(11))}</s>` : ''}</div>
+    <div>📅 ${L('Hvenær', 'When')}</div><div>${e.end_date ? `${esc(fmtLong(e.date))} – ${esc(fmtLong(e.end_date))} <span class="fdays">${daysBetween(e.date, e.end_date) + 1} ${L('dagar', 'days')}</span><br>${L('Byrjar kl.', 'Starts')} ${esc(e.time || '')}` : `${esc(fmtLong(e.date))}, ${L('kl.', '')} ${timeStr(e)}`}${e.time_changed && e.old_time ? `<br><span class="chg">${L('Breyttur tími', 'Time changed')}</span> <s class="role">${esc(fmtShort(e.old_time.slice(0, 10)))} ${esc(e.old_time.slice(11))}</s>` : ''}</div>
     <div>📍 ${L('Hvar', 'Where')}</div><div>${esc(placeLabel(p))}${p.region ? `<br><span class="role">${esc(regionName(p.region))}</span>` : ''}</div>
     ${priceStr(e) ? `<div>💰 ${L('Verð', 'Price')}</div><div>${esc(priceStr(e))}${e.door ? ` · ${L('selt inn við hurð', 'pay at the door')}` : ''}</div>` : e.door ? `<div>🚪</div><div>${L('Selt inn við hurð', 'Pay at the door')}</div>` : ''}
     ${ageStr(e) ? `<div>🔞 ${L('Aldur', 'Age')}</div><div>${esc(ageStr(e))}</div>` : ''}
     <div>🏷️</div><div>${tagStr(e).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}${e.fam ? `<span class="tag">👨‍👩‍👧 ${L('Fjölskylduvænt', 'Family friendly')}</span>` : ''}</div>
    </div>
+   ${(() => { const f = e.festival_id && EVENTS.find((x) => x.id === e.festival_id); return f ? `<p><button class="btn sm" data-fest="${f.id}">🎪 ${L('Hluti af', 'Part of')} ${esc(f.title)} ›</button></p>` : ''; })()}
    ${e.descr ? `<p style="white-space:pre-wrap">${esc(e.descr)}</p>` : ''}
-   <div class="row">${e.ticket ? `<a class="btn primary" href="${esc(e.ticket)}" target="_blank" rel="noopener">🎟️ ${L('Kaupa miða', 'Buy tickets')}</a>` : ''}
+   ${isFest(e) ? `<p class="role">${L('Dagskrána í heild finnurðu hjá hátíðinni sjálfri.', 'See the full programme on the festival’s own page.')}</p>` : ''}
+   <div class="row">${e.url ? `<a class="btn primary" href="${esc(e.url)}" target="_blank" rel="noopener">🌐 ${L('Heimasíða hátíðarinnar', 'Festival website')}</a>` : ''}${e.ticket ? `<a class="btn primary" href="${esc(e.ticket)}" target="_blank" rel="noopener">🎟️ ${L('Kaupa miða', 'Buy tickets')}</a>` : ''}
     <button class="btn" data-share>🔗 ${L('Afrita hlekk', 'Copy link')}</button>
     ${p.lat ? `<button class="btn" data-onmap>🗺️ ${L('Sýna á korti', 'Show on map')}</button>` : ''}</div>
    ${adHtml(String(e.id).length + String(e.title).length, 'small')}`;
@@ -837,6 +872,8 @@ async function openEvent(id) {
     const url = location.origin + BASE + '/?e=' + id;
     try { await navigator.clipboard.writeText(url); toast(L('Hlekkur afritaður', 'Link copied')); } catch (_e) { prompt(L('Afritaðu hlekkinn:', 'Copy the link:'), url); }
   };
+  const fb = m.el.querySelector('[data-fest]');
+  if (fb) fb.onclick = () => { m.close(); openEvent(fb.dataset.fest); };
   const om = m.el.querySelector('[data-onmap]');
   if (om) om.onclick = () => { m.close(); showPublic(); const p = PLACE[e.place_id]; F.sel = null; F.placeId = p.id; renderAll(); map && map.flyTo({ center: [p.lon, p.lat], zoom: 14 }); };
 }
@@ -1402,6 +1439,10 @@ function openEventForm(ev, isCopy) {
        <div class="tagpick" style="margin-top:6px">${xs.map((x) => `<span class="chip ${tags.has(x) ? 'on' : ''}" data-sub="${x}">${TAGL.is[x]}</span>`).join('')}</div></div>`).join('')}
      <div id="genreBox" class="${tags.has('tonlist') ? '' : 'hidden'}" style="margin-top:10px"><span class="role">🎸 Tónlistarstefna (má sleppa, max 4):</span>
        <div class="tagpick" style="margin-top:6px">${GENRES.map((g) => `<span class="chip ${(ev.genres || []).includes(g) ? 'on' : ''}" data-genre="${g}">${GENL.is[g]}</span>`).join('')}</div></div>
+     <div id="festFields" class="${tags.has('hatid') ? '' : 'hidden'}" style="margin-top:10px">
+       <label>📅 Síðasti dagur hátíðarinnar</label><input type="hidden" name="end_date" value="${esc(ev.end_date || '')}"><button type="button" class="btn" id="endDateBtn">${ev.end_date ? esc(fmtLong(ev.end_date)) : 'Veldu síðasta dag'}</button>
+       <label style="margin-top:8px">🌐 Heimasíða eða Facebook-síða hátíðarinnar (þar er dagskráin)</label><input type="url" name="url" placeholder="https://" value="${esc(ev.url || '')}"></div>
+     <div id="festPick" style="margin-top:10px"></div>
      <input type="text" name="other_label" class="${tags.has('annad') ? '' : 'hidden'}" style="margin-top:8px" maxlength="40" placeholder="Hvað er þetta? t.d. fundur eða bingó" value="${esc(ev.other_label || '')}"></div>
    <div class="two"><div class="f"><label>💰 Verð (kr.)</label><input type="number" name="price" min="0" step="1" inputmode="numeric" placeholder="0 = frítt inn" value="${ev.price == null ? '' : ev.price}"></div>
      <div class="f"><label>&nbsp;</label><label class="check"><input type="checkbox" name="door" ${ev.door ? 'checked' : ''}> 🚪 Selt inn við hurð</label></div></div>
@@ -1420,14 +1461,25 @@ function openEventForm(ev, isCopy) {
    <button class="btn primary big" id="evSave">${editing ? '💾 Vista breytingar' : '✅ Setja inn viðburðinn'}</button>
   </form>`);
   const f = m.el.querySelector('#evForm');
-  const pf = wirePlaceField(f, 'ev');
+  // „Hluti af hátíð?“: hátíðir sem standa yfir á völdum degi í sama sveitarfélagi.
+  const refreshFest = () => {
+    const box = $('festPick'); if (!box) return;
+    const isH = !!f.querySelector('[data-tag="hatid"].on'), d = f.date.value, pl = PLACE[pf ? pf.value() : ''];
+    const cands = isH || !d || !pl ? [] : EVENTS.filter((x) => isFest(x) && x.id !== ev.id && x.date <= d && festEnd(x) >= d && PLACE[x.place_id] && PLACE[x.place_id].muni === pl.muni);
+    const cur = ev.festival_id || '';
+    box.innerHTML = cands.map((x) => `<label class="cbx"><input type="checkbox" name="fest_${x.id}" data-fid="${x.id}" ${x.id === cur ? 'checked' : ''}><span>🎪 Hluti af ${esc(x.title)}</span></label>`).join('');
+    box.querySelectorAll('[data-fid]').forEach((c) => (c.onchange = () => { if (c.checked) box.querySelectorAll('[data-fid]').forEach((o) => { if (o !== c) o.checked = false; }); }));
+  };
+  const pf = wirePlaceField(f, 'ev', () => setTimeout(refreshFest, 0));
   const tStart = wireTime(f, 'time'), tEnd = wireTime(f, 'end_time');
   let pastOk = false;
-  const setDate = (s) => { f.date.value = s; $('dateBtn').textContent = fmtLong(s); pastOk = false; $('pastWarn').classList.add('hidden'); checkChange(); };
+  const setDate = (s) => { f.date.value = s; $('dateBtn').textContent = fmtLong(s); pastOk = false; $('pastWarn').classList.add('hidden'); checkChange(); refreshFest(); };
+  refreshFest();
+  $('endDateBtn').onclick = () => openCal(f.end_date.value || f.date.value || iso(TODAY), { title: 'Síðasti dagur hátíðarinnar', min: f.date.value || iso(TODAY), onPick: (s) => { f.end_date.value = s; $('endDateBtn').textContent = fmtLong(s); } });
   $('dateBtn').onclick = () => openCal(f.date.value || iso(TODAY), { title: 'Dagsetning', min: iso(TODAY), allowPast: true, onPick: setDate });
   const checkChange = () => { const hb = $('hlBox'); if (hb) hb.classList.toggle('hidden', !(ev.status === 'approved' && (f.date.value !== ev.date || f.time.value !== ev.time))); };
   f.querySelectorAll('[data-tf="time"] [data-tq]').forEach((c) => c.addEventListener('click', checkChange));
-  f.querySelectorAll('[data-tag]').forEach((c) => (c.onclick = () => { c.classList.toggle('on'); f.other_label.classList.toggle('hidden', !f.querySelector('[data-tag="annad"].on')); $('genreBox').classList.toggle('hidden', !f.querySelector('[data-tag="tonlist"].on')); f.querySelectorAll('[data-subbox]').forEach((bx) => bx.classList.toggle('hidden', !f.querySelector(`[data-tag="${bx.dataset.subbox}"].on`))); }));
+  f.querySelectorAll('[data-tag]').forEach((c) => (c.onclick = () => { c.classList.toggle('on'); f.other_label.classList.toggle('hidden', !f.querySelector('[data-tag="annad"].on')); $('genreBox').classList.toggle('hidden', !f.querySelector('[data-tag="tonlist"].on')); f.querySelectorAll('[data-subbox]').forEach((bx) => bx.classList.toggle('hidden', !f.querySelector(`[data-tag="${bx.dataset.subbox}"].on`))); $('festFields').classList.toggle('hidden', !f.querySelector('[data-tag="hatid"].on')); refreshFest(); }));
   f.querySelectorAll('[data-sub]').forEach((c) => (c.onclick = () => c.classList.toggle('on')));
   f.querySelectorAll('[data-genre]').forEach((c) => (c.onclick = () => { if (!c.classList.contains('on') && f.querySelectorAll('[data-genre].on').length >= 4) return toast('Mest 4 stefnur', true); c.classList.toggle('on'); }));
   const setAge = (a) => {
@@ -1473,6 +1525,7 @@ function openEventForm(ev, isCopy) {
     const body = {
       page_id: f.page_id.value, place_id: pf.value(), title: f.elements.title.value, date: f.date.value, time: f.time.value, end_time: f.end_time.value,
       price: f.price.value === '' ? null : Number(f.price.value), door: f.door.checked, ticket: f.ticket.value, age: f.age.value, age_text: f.age_text.value,
+      end_date: f.end_date.value, url: f.url.value, festival_id: ((f.querySelector('[data-fid]:checked') || {}).dataset || {}).fid || '',
       tags: tagsSel, genres: [...f.querySelectorAll('[data-genre].on')].map((c) => c.dataset.genre), other_label: f.other_label.value, fam: f.fam.checked, descr: f.descr.value, poster: f.poster.value,
       repeat_weeks: f.repeat_weeks ? Number(f.repeat_weeks.value) : 1, highlight_change: f.highlight_change ? f.highlight_change.checked : false,
     };
@@ -1569,8 +1622,8 @@ async function openPlaceForm(place, done) {
 
 /* ---------- Sími: „Hvað langar þig að gera?“ ---------- */
 const isMobile = () => matchMedia('(max-width: 899px)').matches;
-const ICON = { tonlist: '🎸', leikhus: '🎭', uppistand: '😂', pubquiz: '🧠', list: '🎨', annad: '✨' };
-const SUBICON = { tonleikar: '🎤', ball: '💃', dj: '🎧', trubador: '🪕', tonlist_annad: '🎶', leiksyning: '🎭', songleikur: '🎶', barnaleikrit: '🧸', dans: '🩰', leikhus_annad: '🎟️' };
+const ICON = { tonlist: '🎸', leikhus: '🎭', uppistand: '😂', pubquiz: '🧠', list: '🎨', hatid: '🎪', annad: '✨' };
+const SUBICON = { tonleikahatid: '🎸', baejarhatid: '🏘️', tonleikar: '🎤', ball: '💃', dj: '🎧', trubador: '🪕', tonlist_annad: '🎶', leiksyning: '🎭', songleikur: '🎶', barnaleikrit: '🧸', dans: '🩰', leikhus_annad: '🎟️' };
 function flow(html) {
   const el = $('mflow'); el.innerHTML = html; el.classList.remove('hidden'); el.scrollTop = 0;
   document.body.classList.add('m-flow');

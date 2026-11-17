@@ -250,3 +250,11 @@ details.paste textarea{margin:10px 0}
 .card.inv code{display:block;word-break:break-all;font-size:14px;color:#ead8d1;margin-bottom:8px}
 .urow{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line)}
 .urow.blocked{opacity:.6}
+/* Hátíðir: stórt spjald fyrsta daginn sem sést, mjó lína hina dagana */
+.fline{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:7px 12px;border:1px dashed #6b4a2e;border-radius:10px;color:#f0c9a6;font-size:15px;background:rgba(222,138,90,.07)}
+.fline b{color:#f6e2cf}.fline .r{margin-left:auto;color:#b9958d;font-size:13px;white-space:nowrap}
+.ev2.fest{border-color:#c9862f;background:#2e1d16;background:linear-gradient(90deg,rgba(201,134,47,.18),transparent 60%),var(--panel)}
+.ev2.fest .when{background:#5a3a14;color:#ffe2b8}
+.fdays{display:inline-block;background:#c9862f;color:#2a1208;font-size:13px;font-weight:800;border-radius:6px;padding:1px 7px;vertical-align:2px;white-space:nowrap}
+.modal .row{flex-wrap:wrap}
+.ev2 .ln{overflow-wrap:anywhere}
