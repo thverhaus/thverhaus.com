@@ -65,6 +65,8 @@ jobs:
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           cp android/app/build/outputs/apk/release/app-release.apk out/
           curl -fsSL https://thverhaus.com/mulehead.apk -o /tmp/live.apk || true
+          curl -fsSL https://thverhaus.com/updates.json -o out/LIVE-updates.json || true
+          sha256sum /tmp/live.apk > out/LIVE-apk.sha256 || true
           {
             echo "== Ný útgáfa"; "$BT/apksigner" verify --print-certs out/app-release.apk | grep -i "SHA-256"
             echo "== Á thverhaus.com"; "$BT/apksigner" verify --print-certs /tmp/live.apk | grep -i "SHA-256" || echo "náði ekki í"
