@@ -333,7 +333,7 @@ function dayLabel(d) {
 const ADS = [
   { e: '🥫', t: 'Heiðars Remúlaði', d: 'Á pylsuna. Á franskarnar. Á allt.', bg: '#7a5a12', fg: '#fff4d6' },
   { e: '🍺', t: 'Núlli Fús', d: '0% bjór. 100% Fús.', bg: '#1f3b4d', fg: '#e3f2ff' },
-  { e: '🍗', t: 'Hafnarbúðin', d: 'Kjúlli Fús og Coke Zero · 3.000 kr.', bg: '#6b2318', fg: '#ffe6dc' },
+  { e: '🥨', t: 'Kleinubakarí Kalla', d: 'Kleinur svo góðar að amma þín verður afbrýðisöm.', bg: '#6b2318', fg: '#ffe6dc' },
   { e: '🚗', t: 'Bílaþvottur Bjössa', d: 'Við þvoum bílinn. Og hundinn ef þú biður fallega.', bg: '#1d4a3a', fg: '#dcf5ea' },
   { e: '🧶', t: 'Prjónastofan Lopi', d: 'Lopapeysur á alla hljómsveitina. Afsláttur fyrir trommara.', bg: '#4a2d5c', fg: '#f1e3fa' },
   { e: '🎸', t: 'Gítarviðgerðir Gunnu', d: 'Slitinn strengur? Brotinn háls? Gunna lagar allt nema lagið.', bg: '#5c3a1e', fg: '#fbe8d6' },
