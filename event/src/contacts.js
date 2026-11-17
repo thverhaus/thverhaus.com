@@ -36,6 +36,14 @@ export async function contactsSchema(env) {
       env.DB.prepare(`INSERT OR REPLACE INTO meta (k,v) VALUES ('contacts_google2','1')`),
     ]);
   }
+  // Regla 4: síður lesnar aftur (líka endinn) hjá stöðum með heimasíðu en ekkert netfang. Google ekki spurt.
+  const r4 = await env.DB.prepare(`SELECT v FROM meta WHERE k='contacts_tail'`).first();
+  if (!r4) {
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE places SET contact_checked=0 WHERE web<>'' AND email=''`),
+      env.DB.prepare(`INSERT OR REPLACE INTO meta (k,v) VALUES ('contacts_tail','1')`),
+    ]);
+  }
   const row = await env.DB.prepare(`SELECT v FROM meta WHERE k='contacts_osm'`).first();
   if (row && row.v === "1") { schemaDone = true; return; }
   const stmts = Object.entries(OSM_CONTACTS).map(([id, [email, web, fb, phone]]) =>
@@ -101,7 +109,9 @@ async function getHtml(url) {
   try {
     const r = await fetch(url, { signal: ac.signal, redirect: "follow", headers: { "User-Agent": "Mozilla/5.0 (Vidburdir; netfang stadar)" } });
     if (!r.ok || !/html/i.test(r.headers.get("content-type") || "")) return "";
-    return (await r.text()).slice(0, 150000);
+    // Netfangið er oftast NEÐST (í fætinum), svo stórar síður eru lesnar í byrjun og enda.
+    const t = await r.text();
+    return t.length > 150000 ? t.slice(0, 50000) + " " + t.slice(-100000) : t;
   } catch (_e) { return ""; } finally { clearTimeout(t); }
 }
 function pickEmail(list, web) {
