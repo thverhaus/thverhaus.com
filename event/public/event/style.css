@@ -146,7 +146,7 @@ details.paste textarea{margin:10px 0}
 .list{background:none;border:0;display:flex;flex-direction:column;gap:6px;overflow:visible}
 .ev2{display:grid;grid-template-columns:62px 1fr auto;gap:12px;align-items:center;width:100%;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:7px 12px;color:var(--text)}
 .ev2:hover{border-color:var(--accent)}
-.ev2 .when{display:flex;align-items:center;justify-content:center;background:var(--panel2);border-radius:9px;padding:8px 2px;line-height:1.1}
+.ev2 .when{display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;background:var(--panel2);border-radius:9px;padding:8px 2px;line-height:1.1}
 .ev2 .when.today{background:var(--accent);color:var(--onaccent)}
 .ev2 .dow{font-weight:800;font-size:14px;letter-spacing:.04em}
 .ev2 .dm{font-size:15px}
@@ -260,3 +260,9 @@ details.paste textarea{margin:10px 0}
 .ev2 .ln{overflow-wrap:anywhere}
 .ev2 .ln.fx{color:#f0c9a6}
 .fline>span:first-child{min-width:0}
+
+/* Bærinn uppi í hægra horni, „Í gangi“ í tímareitnum */
+.ev2 .rt{display:flex;flex-direction:column;align-items:flex-end;gap:4px;align-self:start}
+.ev2 .twn{font-size:13px;font-weight:700;color:#cdb9b1;white-space:nowrap}
+.ev2 .when .livel{font-size:11px;padding:1px 4px;vertical-align:0;white-space:nowrap}
+@media (max-width:899px){.ev2{grid-template-columns:58px 1fr auto}}

@@ -290,25 +290,36 @@ function visibleEvents() {
 
 /* ---------- Listinn ---------- */
 const DOW_IS = ['SUN', 'MÁN', 'ÞRI', 'MIÐ', 'FIM', 'FÖS', 'LAU'], DOW_EN = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+// Flokkur með merki, t.d. „🎧 DJ“ (undirflokkur ef hann er til, annars aðalflokkur)
+function catLabel(e) {
+  const t = e.tags || [];
+  const sub = t.find((x) => SUBICON[x] && !/_annad$/.test(x));
+  const top = t.find((x) => ICON[x]);
+  const k = sub || top;
+  if (!k) return '';
+  const name = k === 'annad' && e.other_label ? e.other_label : TAGL[lang][k] || k;
+  return (SUBICON[k] || ICON[k]) + ' ' + name;
+}
 function evRow(e) {
   const p = PLACE[e.place_id] || {};
   const d = parseISO(e.date);
   const today = e.date === iso(TODAY), tmrw = e.date === iso(addDays(TODAY, 1));
   const dow = today ? L('Í DAG', 'TODAY') : tmrw ? L('Á MORGUN', 'TMRW') : (lang === 'en' ? DOW_EN : DOW_IS)[d.getDay()];
   const fest = e.festival_id && EVENTS.find((x) => x.id === e.festival_id);
-  const meta = [fest && '🎪 ' + L('Hluti af ', 'Part of ') + fest.title, '📍 ' + placeLabel(p), priceStr(e) && '💰 ' + priceStr(e), e.door && '🚪 ' + L('við hurð', 'at the door'), ageStr(e) && '🔞 ' + ageStr(e)].filter(Boolean);
+  const town = p.cat === 'town' ? p.name : p.town || [p.area, muniName(p.muni)].filter(Boolean).join(', ');
+  const meta = [catLabel(e), fest && '🎪 ' + L('Hluti af ', 'Part of ') + fest.title, '📍 ' + (p.cat === 'town' ? L('Um allan bæ', 'Around town') : p.name), priceStr(e) && '💰 ' + priceStr(e), e.door && '🚪 ' + L('við hurð', 'at the door'), ageStr(e) && '🔞 ' + ageStr(e)].filter(Boolean);
   const multi = isFest(e) && e.end_date;
   // Dagurinn stendur í fyrirsögn yfir hópnum; hér bara tíminn. Staður, verð og aldur í einni línu
   // (hver hluti brotnar ekki í sundur). Merkin sjást þegar viðburður er opnaður.
   const live = isLive(e);
   return `<button class="ev2 ${e.cancelled ? 'cx' : ''} ${live ? 'live' : ''} ${isFest(e) ? 'fest' : ''}" data-ev="${e.id}">
-    <span class="when"><span class="tm">${multi && dayKey(e) > e.date ? `<small style="font-size:13px">${L('Dagur', 'Day')} ${daysBetween(e.date, dayKey(e)) + 1}</small>` : esc(e.time)}</span></span>
+    <span class="when"><span class="tm">${multi && dayKey(e) > e.date ? `<small style="font-size:13px">${L('Dagur', 'Day')} ${daysBetween(e.date, dayKey(e)) + 1}</small>` : esc(e.time)}</span>${live ? `<span class="livel">● ${L('Í gangi', 'On now')}</span>` : ''}</span>
     <span class="body">
-      <span class="ti">${e.cancelled ? `<span class="cxl">${L('AFLÝST', 'CANCELLED')}</span> ` : ''}${live ? `<span class="livel">● ${L('Í gangi', 'On now')}</span> ` : ''}${isFest(e) ? '🎪 ' : ''}${esc(e.title)}${multi ? ` <span class="fdays">${daysBetween(e.date, e.end_date) + 1} ${L('dagar', 'days')} · ${L('til', 'until')} ${esc(fmtShort(e.end_date))}</span>` : ''}</span>
+      <span class="ti">${e.cancelled ? `<span class="cxl">${L('AFLÝST', 'CANCELLED')}</span> ` : ''}${isFest(e) ? '🎪 ' : ''}${esc(e.title)}${multi ? ` <span class="fdays">${daysBetween(e.date, e.end_date) + 1} ${L('dagar', 'days')} · ${L('til', 'until')} ${esc(fmtShort(e.end_date))}</span>` : ''}</span>
       <span class="ln">${meta.map((x) => (x.length < 26 ? `<span class="nw">${esc(x)}</span>` : esc(x))).join(' · ')}</span>
       ${e.time_changed ? `<span class="ln chg">🕘 ${L('Breyttur tími', 'Time changed')}</span>` : ''}
     </span>
-    ${e.poster ? `<img src="${posterUrl(e.poster)}" alt="" loading="lazy">` : ''}</button>`;
+    <span class="rt">${town ? `<span class="twn">${esc(town)}</span>` : ''}${e.poster ? `<img src="${posterUrl(e.poster)}" alt="" loading="lazy">` : ''}</span></button>`;
 }
 function dayLabel(d) {
   if (d === iso(TODAY)) return [L('Í dag', 'Today'), fmtLong(d)];
@@ -350,7 +361,7 @@ function renderList() {
   const headOf = (arr) => arr && arr.length ? (arr.find((x) => x.headline) || arr.slice().sort((a, b) => ((a.time || '') < (b.time || '') ? 1 : -1))[0]) : null;
   const festExtra = (e, k) => {
     const arr = (subsBy[e.id] || {})[k], h = headOf(arr);
-    return h ? ` · ⭐ ${esc(h.title)} ${L('kl.', '')} ${esc(h.time || '')}${arr.length > 1 ? ` · +${arr.length - 1} ${L('fleiri', 'more')}` : ''}` : '';
+    return h ? ` · ⭐ ${esc(h.title)} ${L('kl.', '')} ${esc(h.time || '')}${priceStr(h) ? ' · ' + esc(priceStr(h)) : ''}${arr.length > 1 ? ` · +${arr.length - 1} ${L('fleiri', 'more')}` : ''}` : '';
   };
   // Hátíðir: stórt spjald fyrsta daginn sem sést, svo bara mjó lína hina dagana („dagur 2 af 4“).
   const [ra, rb] = dateRange();
@@ -875,7 +886,7 @@ function eventDetailHtml(e) {
    ${(() => { const f = e.festival_id && EVENTS.find((x) => x.id === e.festival_id); return f ? `<p><button class="btn sm" data-fest="${f.id}">🎪 ${L('Hluti af', 'Part of')} ${esc(f.title)} ›</button></p>` : ''; })()}
    ${e.descr ? `<p style="white-space:pre-wrap">${esc(e.descr)}</p>` : ''}
    ${isFest(e) ? (() => { const subs = EVENTS.filter((x) => x.festival_id === e.id && !isOver(x)).sort((a, b) => (a.date + a.time < b.date + b.time ? -1 : 1));
-      return (subs.length ? `<h3 style="margin:14px 0 6px">${L('Á síðunni hjá okkur', 'Listed here')}</h3>${subs.map((x) => `<button class="fline" data-sub="${x.id}"><span>${x.headline ? '⭐ ' : ''}<b>${esc(x.title)}</b> · ${esc(fmtShort(x.date))} ${L('kl.', '')} ${esc(x.time || '')}</span><span class="r">${esc((PLACE[x.place_id] || {}).name || '')} ›</span></button>`).join('')}` : '')
+      return (subs.length ? `<h3 style="margin:14px 0 6px">${L('Á síðunni hjá okkur', 'Listed here')}</h3>${subs.map((x) => `<button class="fline" data-sub="${x.id}"><span>${x.headline ? '⭐ ' : ''}<b>${esc(x.title)}</b> · ${esc(fmtShort(x.date))} ${L('kl.', '')} ${esc(x.time || '')}${priceStr(x) ? ' · ' + esc(priceStr(x)) : ''}</span><span class="r">${esc((PLACE[x.place_id] || {}).name || '')} ›</span></button>`).join('')}` : '')
         + `<p class="role">${L('Dagskrána í heild finnurðu hjá hátíðinni sjálfri.', 'See the full programme on the festival’s own page.')}</p>`; })() : ''}
    <div class="row">${e.url ? `<a class="btn primary" href="${esc(e.url)}" target="_blank" rel="noopener">🌐 ${L('Heimasíða hátíðarinnar', 'Festival website')}</a>` : ''}${e.ticket ? `<a class="btn primary" href="${esc(e.ticket)}" target="_blank" rel="noopener">🎟️ ${L('Kaupa miða', 'Buy tickets')}</a>` : ''}
     <button class="btn" data-share>🔗 ${L('Afrita hlekk', 'Copy link')}</button>
