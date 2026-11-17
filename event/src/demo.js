@@ -96,6 +96,33 @@ export async function createDemo(env, todayISO) {
         cancelled ? "Veikindi í hljómsveitinni" : "", changed, changed ? `${date} 20:00` : "", now, now));
     }
   }
+  // Viðburðir yfir allan sólarhringinn (á hverjum degi), svo alltaf sjáist eitthvað „Í gangi“.
+  const DAY = [
+    ["08:00", "09:30", "annad", "Morgunjóga með lifandi tónlist", false, 1],
+    ["10:00", "11:30", "annad", "Morgunkaffi og harmonikka", false, 1],
+    ["10:00", "18:00", "list", "Listsýning: Ljós og myrkur", false, 1],
+    ["12:00", "13:00", "tonleikar", "Hádegistónleikar", true, 1],
+    ["13:00", "14:30", "leikhus", "Barnaleikrit: Litli bátsmaðurinn", false, 1],
+    ["14:00", "16:00", "annad", "Bingó", false, 1],
+    ["15:00", "16:30", "tonleikar", "Kaffihúsatónleikar", true, 1],
+    ["17:00", "19:00", "trubador", "Happy hour trúbador", true, 0],
+    ["23:00", "05:00", "dj", "Næturvakt", true, 0],
+  ];
+  const places = [...chosen.values()];
+  for (let day = -1; day < 42; day++) { // frá því í gær, svo næturviðburðir séu í gangi eftir miðnætti
+    for (const [time, end, tag, base, music, fam] of DAY) {
+      const pl = pick(places), by = music ? pick(bandsOnly) : pick(groups);
+      const title = tag === "dj" ? `${base}: ${by.name}` : music ? `${base}: ${by.name}` : base;
+      stmts.push(env.DB.prepare(
+        `INSERT OR REPLACE INTO events (id,place_id,page_id,title,date,time,end_time,price,ticket,door,age,age_text,tags,genres,other_label,fam,descr,poster,status,cancelled,cancel_note,time_changed,old_time,created,updated)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).bind(`demo-e-${n++}`, pl.id, by.id, title, addDays(day), time, end, tag === "dj" ? 2500 : 0, "", 0, tag === "dj" ? "20" : "", "",
+        JSON.stringify(music ? ["tonlist", tag] : tag === "leikhus" ? ["leikhus", "barnaleikrit"] : [tag]),
+        JSON.stringify(tag === "tonleikar" ? [pick(["klassik", "djass", "thjodlaga"])] : tag === "dj" ? ["raf"] : []),
+        tag === "annad" ? (base === "Bingó" ? "Bingó" : "") : "", fam,
+        "🧪 Prufuviðburður – ekki raunverulegur. Hér kæmi lýsing frá staðnum eða bandinu.", "", "approved", 0, "", 0, "", now, now));
+    }
+  }
   for (let i = 0; i < stmts.length; i += 90) await env.DB.batch(stmts.slice(i, i + 90));
   return { places: chosen.size, pages: bands.length, events: n };
 }
