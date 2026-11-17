@@ -43,6 +43,10 @@ jobs:
           fi
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in signing/debug.keystore.enc \
             -out ~/.android/debug.keystore -pass env:KEY_PASS
+          # Gradle/AGP les lykilinn úr ANDROID_USER_HOME ef það er sett; setjum það á sama stað.
+          echo "ANDROID_USER_HOME=$HOME/.android" >> "$GITHUB_ENV"
+          echo "ANDROID_PREFS_ROOT=$HOME" >> "$GITHUB_ENV"
+          keytool -list -keystore ~/.android/debug.keystore -storepass android | grep -i sha
 
       - name: Byggja
         id: build
@@ -52,7 +56,8 @@ jobs:
           # Java-slóðin á Mac Júlla gildir ekki hér; notum Java úr setup-java.
           sed -i '/^org.gradle.java.home/d' gradle.properties
           set -o pipefail
-          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee ../out/build.log
+          echo "ANDROID_USER_HOME=$ANDROID_USER_HOME" | tee ../out/build.log
+          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee -a ../out/build.log
 
       - name: Bera saman undirskrift við útgáfuna á thverhaus.com
         if: steps.build.outcome == 'success'
