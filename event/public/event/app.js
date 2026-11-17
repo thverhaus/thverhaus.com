@@ -1187,6 +1187,8 @@ async function renderOwner() {
      <div class="f hidden" id="npPlace"><label>Staðurinn</label>${placeFieldHtml('np', null)}</div>
      <label class="check"><input type="checkbox" name="join"> Ég verð líka stjórnandi síðunnar</label>
      <div style="margin-top:10px"><button class="btn primary">Búa til</button></div><div id="npMsg"></div></form>
+   <div class="card"><h3>📧 Netföng staða</h3><p class="role">Finnur heimasíður sem vantar (Google) og sækir netföngin af þeim. Gert einu sinni – svo staðir geti staðfest sig sjálfir.</p>
+     <div id="ctStats" class="role">Hleð…</div><div class="row"><button class="btn primary" id="ctRun">🔎 Finna heimasíður og netföng</button></div></div>
    <div class="card"><h3>🧪 Prufugögn</h3><p class="role">Tilbúnir staðir, bönd og viðburðir um allt land til að sjá síðuna í notkun. Allt prufudót er merkt og hægt að eyða í einu.</p>
      <div class="row"><button class="btn" id="demoAdd">➕ Setja inn prufuviðburði</button><button class="btn danger" id="demoDel">🗑️ Eyða öllum prufugögnum</button></div></div>
    <div class="card"><h3>Allar síður (${r.pages.filter((p) => !p.id.startsWith('demo-')).length})</h3>${r.pages.filter((p) => !p.id.startsWith('demo-')).map((p) => `<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:6px 0">
@@ -1198,6 +1200,20 @@ async function renderOwner() {
       toast(method === 'POST' ? `✅ ${r.events} prufuviðburðir á ${r.places} stöðum` : '🗑️ Prufugögnum eytt');
       setPlaces((await api('/places')).places); await loadEvents(); renderAll(); renderMine();
     } catch (e) { toast(e.message, true); }
+  };
+  const ctShow = (x) => { $('ctStats').innerHTML = `Farið yfir <b>${x.checked}</b> af ${x.total} stöðum · 📧 <b>${x.email}</b> með netfang · 🌐 ${x.web} með heimasíðu · 📘 ${x.fb} með Facebook${x.googleUsed != null ? ` · Google-fyrirspurnir í mánuðinum: ${x.googleUsed}/900` : ''}${x.hasKey ? '' : ' · ⚠️ Google-lykil vantar'}`; };
+  api('/admin/contacts').then(ctShow).catch(() => {});
+  $('ctRun').onclick = async () => {
+    const b = $('ctRun'); b.disabled = true; b.textContent = '⏳ Í gangi – ekki loka síðunni…';
+    try {
+      for (;;) {
+        const x = await api('/admin/contacts', { method: 'POST' });
+        ctShow(x);
+        if (x.errors && x.errors.length) { toast(x.errors[0], true); break; }
+        if (x.done) { toast('✅ Búið'); break; }
+      }
+    } catch (e) { toast(e.message, true); }
+    b.disabled = false; b.textContent = '🔎 Finna heimasíður og netföng';
   };
   $('demoAdd').onclick = () => demo('POST');
   $('demoDel').onclick = () => demo('DELETE');

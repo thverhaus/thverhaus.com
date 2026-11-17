@@ -1,5 +1,6 @@
 import { createDemo, deleteDemo } from "./demo.js";
 import OSM_PLACES from "./osm-places.json";
+import { contactsStep, contactsStats } from "./contacts.js";
 const OSM_VERSION = "261114e";
 
 // Viðburðasíðan – netþjónn (Cloudflare Worker + D1 + R2).
@@ -894,6 +895,10 @@ async function route(req, env, url, path) {
   if (path === "/api/invites/request" && m === "POST") return apiRequestInvites(req, env, user);
   if ((mm = path.match(/^\/api\/invites\/([A-Z0-9]+)$/)) && m === "DELETE") return apiDeleteInvite(req, env, user, mm[1]);
   if (path === "/api/admin/users" && m === "GET") return apiAdminUsers(req, env, user);
+  if (path === "/api/admin/contacts" && (m === "GET" || m === "POST")) {
+    if (!user.is_owner) return err("Aðeins eigandi.", 403);
+    return json(m === "POST" ? await contactsStep(env) : await contactsStats(env));
+  }
   if ((mm = path.match(/^\/api\/admin\/invite-requests\/([\w-]+)\/(approve|reject)$/)) && m === "POST") return apiAdminInviteRequest(req, env, user, mm[1], mm[2]);
   if ((mm = path.match(/^\/api\/admin\/users\/([\w-]+)\/(block|unblock|block-branch|unblock-branch)$/)) && m === "POST") return apiAdminBlock(req, env, user, mm[1], mm[2]);
   if (path === "/api/feedback" && m === "GET") return apiListFeedback(req, env, user);
