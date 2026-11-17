@@ -1,0 +1,47 @@
+MULEHEAD 1.5.6 – Mac (Apple Silicon)
+
+Uppsetning (3 skref)
+--------------------
+1. Dragðu Mulehead.app inn í Applications (Forrit) möppuna.
+2. Opnaðu Terminal (Cmd+Space, skrifaðu „Terminal“) og keyrðu þessa línu
+   – appið er óundirritað, þannig að macOS þarf að fá leyfi:
+
+       xattr -dr com.apple.quarantine /Applications/Mulehead.app
+
+3. Opnaðu Mulehead úr Forritum. Ef macOS spyr hvort þú viljir opna það:
+   veldu Open. (Ef ekkert gerist: hægri-smelltu á Mulehead.app → Open → Open.)
+
+Setja upp playlista
+-------------------
+4. Í appinu: Playlistar → Bæta við → límdu inn þinn eigin m3u hlekk.
+
+   ATH: sami m3u hlekkurinn virkar ekki hjá tveimur í einu – áskriftin leyfir
+   aðeins eitt streymi í einu, svo annað appið fær enga mynd. Hvor þarf sinn
+   hlekk (sinn reikning). Ef þið hafið bara eina áskrift getur bara annar
+   horft í einu; Mulehead getur ekki deilt straumi milli tveggja vélar.
+
+5. Veldu rás – myndin á að byrja eftir nokkrar sekúndur.
+
+Horfa saman (herbergi)
+----------------------
+6. Annar ýtir á „🤝 Horfa saman“ → „➕ Búa til herbergi“ og fær 5 stafa kóða
+   (t.d. KVOLD). Hinn ýtir á 🤝, setur sama kóða og ýtir á „Taka þátt“.
+   Báðir velja sömu rás. Herbergið stillir bara tímann – hvor sækir sinn
+   straum í sína áskrift.
+
+   Kóðinn er geymdur, svo þið þurfið ekki að muna hann: hann stendur á 🤝
+   takkanum næst („🤝 KVOLD“). Appið tengist honum samt ALDREI sjálft – það
+   bíður eftir að þú ýtir á 🤝 og „Taka þátt“. Það byrjar heldur aldrei að
+   spila sjálft; þú velur rásina.
+
+7. Ef buffering verður hröð: ýttu á „Hlaða buffer“ (eða B á lyklaborðinu).
+   Bæði pása í ~60 sekúndur (best að gera það í hléi) og bufferinn fyllist.
+   Ef buffer tæmist kemur myndin aftur eftir ~15 sekúndur; ef það gerist
+   aftur innan 2 mínútna fyllir appið í fullan buffer (~60 sek) svo þið
+   þurfið ekki að stoppa aftur og aftur.
+
+Ef eitthvað er að
+-----------------
+- Svart skjár/„Rásin svarar ekki“: ýttu á „Reyna aftur“.
+- Ef þið rekist ekki í takt: opnaðu 🤝 gluggann; þar stendur hvort þið eruð
+  í takt og hve mikið vantar.

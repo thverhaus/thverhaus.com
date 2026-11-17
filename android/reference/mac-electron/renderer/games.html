@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="is">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; img-src * data:;">
+<title>Leikir dagsins</title>
+<link rel="stylesheet" href="app.css">
+<style>
+  body { overflow: hidden; }
+  .top { padding-left: 84px; }
+  .daynav { display: flex; gap: 6px; align-items: center; }
+  .sports { display: flex; gap: 4px; }
+  .sports button.on { background: var(--accent); color: #1b1305; border-color: var(--accent); font-weight: 600; }
+  body.ufc .daynav { display: none; }
+  .ev .evname { font-weight: 700; }
+  .ev .evsub { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+  .daynav b { min-width: 86px; text-align: center; }
+  .wrap { height: calc(100% - 52px); overflow-y: auto; padding: 8px 0 30px; }
+  .sec { padding: 14px 16px 6px; color: var(--accent2); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+  .m { padding: 10px 16px; border-bottom: 1px solid #1a1e26; cursor: pointer; }
+  .m:hover { background: #171b23; }
+  .m.open { background: #191d26; }
+  .mrow { display: flex; align-items: center; gap: 10px; }
+  .tm { width: 52px; flex: none; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
+  .tm.live { color: var(--good); font-weight: 700; }
+  .tm.ht { color: var(--accent); font-weight: 700; }
+  .teams { flex: 1; min-width: 0; }
+  .team { display: flex; align-items: center; gap: 6px; }
+  .team img { width: 18px; height: 18px; object-fit: contain; }
+  .team .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .team .sc { width: 22px; text-align: right; font-weight: 700; }
+  .tstar { opacity: .3; cursor: pointer; padding: 0 2px; }
+  .tstar.on { opacity: 1; }
+  .team:hover .tstar { opacity: .8; }
+  .nch { flex: none; font-size: 12px; color: var(--muted); }
+  .nch.has { color: var(--accent2); }
+  .chs { margin: 8px 0 2px 62px; }
+  .chrow { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: #20242f; margin-bottom: 4px; }
+  .chrow:hover { background: #2a303d; }
+  .chrow .n { flex: 1; min-width: 0; }
+  .chrow .n small { margin: 0; }
+  .note { color: var(--muted); font-size: 12.5px; margin: 6px 0; }
+  .settings { padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .settings h4 { margin: 12px 0 6px; color: var(--accent2); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; }
+  .grid label { display: flex; gap: 6px; align-items: center; font-size: 13px; padding: 2px 0; }
+  .settings input[type=text] { width: 100%; }
+  .empty { padding: 40px 20px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="sports"><button data-sport="football" class="on">⚽ Fótbolti</button><button data-sport="ufc">🥊 UFC</button></div>
+  <div class="daynav">
+    <button id="prev" title="Fyrri dagur">‹</button><b id="dayLabel">Í dag</b><button id="next" title="Næsti dagur">›</button>
+  </div>
+  <span style="flex:1"></span>
+  <div class="tools">
+    <button id="refresh" title="Uppfæra">🔄</button>
+    <button id="toggleSettings" title="Stillingar">⚙️</button>
+  </div>
+</header>
+<div class="wrap" id="wrap">
+  <div class="settings hidden" id="settings">
+    <h4>🏆 Keppnir</h4>
+    <div class="grid" id="leagues"></div>
+    <h4>🌍 Lönd (fyrir sjónvarpsstöðvar)</h4>
+    <div class="grid" id="countries"></div>
+    <p class="note">📺 Upplýsingar um sjónvarpsstöðvar koma frá FotMob og framundanibeinni.is. Appið finnur svo rásirnar í áskriftinni þinni.</p>
+    <p class="note">⭐ Smelltu á stjörnu við lið til að gera það að uppáhaldsliði. Leikir þeirra eru alltaf efst og birtast undir „Beint í dag“.</p>
+  </div>
+  <div id="list"></div>
+</div>
+<script src="games.js"></script>
+</body>
+</html>

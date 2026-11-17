@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="is">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob: http: https: ws: wss:; img-src * data: blob:; media-src * blob: data:; connect-src * blob: data:; worker-src blob: 'self';">
+<title>Mulehead</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">🐴 Mulehead</div>
+  <select id="plSelect" title="Playlisti"></select>
+  <div class="search"><input id="search" type="search" placeholder="Leita að rás…  (⌘F)" spellcheck="false"><button id="btnGames" title="Leikir dagsins">⚽ Leikir</button></div>
+  <div class="tools">
+    <button id="btnRefresh" title="Uppfæra playlista og dagskrá">🔄</button>
+    <button id="btnSync" title="Horfa saman">🤝 Horfa saman</button>
+    <button id="btnAdd" title="Bæta við playlista í vafra">➕ Playlistar</button>
+    <button id="btnSettings" title="Stillingar">⚙️</button>
+  </div>
+</header>
+
+<div id="banner" class="banner hidden"></div>
+
+<div class="layout">
+  <aside id="groupsPane">
+    <div class="modes"><button data-mode="live" class="on">📺 Beint</button><button data-mode="movies">🎬 Myndir</button><button data-mode="series">📼 Þættir</button></div>
+    <div id="groups"></div>
+    <button id="btnGroups" class="manage">✏️ Raða og fela flokka</button>
+  </aside>
+
+  <section id="channelsPane">
+    <div class="listhead"><span id="listTitle">Allar rásir</span><span id="listCount"></span></div>
+    <div id="chlist" class="vlist" tabindex="0"><div id="chspacer"></div><div id="chrows"></div></div>
+    <div id="emptyList" class="empty hidden"></div>
+  </section>
+
+  <main id="stage">
+    <div id="playerWrap">
+      <video id="video" playsinline></video>
+      <div id="overlay" class="overlay hidden"><div class="spinner"></div><div id="overlayText"></div><div class="ovbtns"><button id="overlayRetry" class="hidden">↻ Reyna aftur</button><button id="overlayOther" class="hidden">☰ Velja aðra rás</button></div></div>
+      <div id="idle" class="idle">
+        <div class="idlelogo">🐴</div>
+        <div>Veldu rás til að byrja</div>
+      </div>
+      <div id="osd" class="osd hidden"></div>
+      <div id="syncBadge" class="syncbadge hidden"></div>
+      <div id="bankBadge" class="bankbadge hidden"></div>
+      <div id="vodbar" class="vodbar">
+        <button id="vPlay" title="Spila / pása">⏯</button>
+        <button id="vBack" title="30 sek til baka">⟲ 30</button>
+        <button id="vFwd" title="30 sek áfram">30 ⟳</button>
+        <span id="vTime" class="vtime">0:00</span>
+        <input id="vSeek" type="range" min="0" max="1000" step="1" value="0">
+        <span id="vDur" class="vtime">0:00</span>
+        <button id="vMute" title="Hljóð">🔊</button>
+        <button id="vFull" title="Fullur skjár">⛶</button>
+      </div>
+      <div id="controls" class="controls">
+        <button id="cMute" title="Hljóð (M)">🔊</button>
+        <input id="cVol" type="range" min="0" max="1" step="0.02" value="1">
+        <span class="grow"></span>
+        <span id="cInfo" class="cinfo"></span>
+        <button id="cBank" title="Hlaða buffer (B)">⏸ Hlaða</button>
+        <button id="cRetry" title="Endurtengja (R)">↻</button>
+        <button id="cPip" title="Mynd í mynd">🗗</button>
+        <button id="cFull" title="Fullur skjár (F)">⛶</button>
+      </div>
+    </div>
+    <div id="nowInfo" class="nowinfo"></div>
+    <div id="epgList" class="epglist"></div>
+  </main>
+</div>
+
+<!-- Sync drawer -->
+<div id="syncDrawer" class="drawer hidden">
+  <div class="drawerhead"><h3>🤝 Horfa saman</h3><button class="x" data-close="syncDrawer">✕</button></div>
+  <div id="syncBody"></div>
+</div>
+
+<!-- Settings -->
+<div id="settingsModal" class="modal hidden">
+  <div class="card wide">
+    <div class="drawerhead"><h3>⚙️ Stillingar</h3><button class="x" data-close="settingsModal">✕</button></div>
+    <div class="cols">
+      <div>
+        <h4>📶 Streymi</h4>
+        <label>Buffer: <b id="bufVal"></b> sek
+          <input id="setBuffer" type="range" min="2" max="120" step="1">
+          <small>Stærri buffer = stöðugra. Appið byrjar að spila eftir nokkrar sekúndur og safnar svo upp í þetta.</small>
+        </label>
+        <label class="row"><input type="checkbox" id="setGrow"> Safna í buffer með því að spila 5% hægar</label>
+        <small style="margin:-6px 0 12px">Óþekkjanlegt hjá flestum. Ef slökkt er, safnast bara í buffer við frost.</small>
+        <label>Beinar rásir í gegnum staðbundið relay
+          <select id="setRelay"><option value="always">Já (mælt með – verndar gegn netrofi)</option><option value="off">Nei (beint á þráðinn)</option></select>
+          <small>Með relay heldur myndin áfram úr buffer þótt netið detti út – sambandið er opið áfram.</small>
+        </label>
+        <h4>📁 Rásalisti</h4>
+        <label class="row"><input type="checkbox" id="setSort"> Raða rásum A–Ö innan möppu</label>
+        <label class="row"><input type="checkbox" id="setMerge"> Sameina HD / FHD / 4K / backup í eina línu</label>
+        <label>Snið (Xtream)
+          <select id="setFormat"><option value="ts">TS (mælt með)</option><option value="hls">HLS (m3u8)</option></select>
+          <small>Ef streymi hikstar, prófaðu hitt sniðið.</small>
+        </label>
+        <label>User-agent
+          <input id="setUA" type="text" placeholder="Sjálfgefið (VLC)" spellcheck="false">
+          <small>Sumar áskriftir krefjast ákveðins user-agent.</small>
+        </label>
+        <h4>📺 Dagskrá og uppfærslur</h4>
+        <label>Uppfæra sjálfkrafa á
+          <select id="setRefresh"><option value="6">6 tíma fresti</option><option value="12">12 tíma fresti</option><option value="24">sólarhrings fresti</option><option value="72">3 daga fresti</option></select>
+        </label>
+        <label>Hliðra dagskrá
+          <select id="setEpgOff"></select>
+        </label>
+        <h4>🤝 Horfa saman</h4>
+        <label>Nafnið þitt
+          <input id="setNick" type="text" placeholder="t.d. Júlli">
+        </label>
+        <label>Herbergiskóði
+          <input id="setRoom" type="text" placeholder="t.d. KVOLD (tómt = ekkert geymt)" style="text-transform:uppercase">
+        </label>
+        <small class="muted">Kóðinn er geymdur svo þú þurfir ekki að muna hann. Appið tengist honum <b>aldrei sjálft</b> – það bíður eftir að þú ýtir á 🤝 og „Taka þátt“.</small>
+      </div>
+      <div>
+        <h4>📋 Playlistar</h4>
+        <div id="plList"></div>
+        <h4>🌐 Vefsíða</h4>
+        <div id="webInfo"></div>
+        <h4>📒 Dagbók</h4>
+        <p class="muted">Skráir frost, endurtengingar og villur í Documents/Mulehead.</p>
+        <div class="row"><button id="openLog">📂 Opna dagbókarmöppu</button></div>
+        <p class="muted" id="verInfo"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Group manager -->
+<div id="groupsModal" class="modal hidden">
+  <div class="card">
+    <div class="drawerhead"><h3>✏️ Flokkar</h3><button class="x" data-close="groupsModal">✕</button></div>
+    <div class="gmtools">
+      <input id="gmFilter" type="search" placeholder="Sía flokka…">
+      <button id="gmShowAll">Sýna síaða</button>
+      <button id="gmHideAll">Fela síaða</button>
+    </div>
+    <small class="muted">Hakaðu við flokka til að sýna þá. Notaðu örvarnar til að raða.</small>
+    <div id="gmList" class="gmlist"></div>
+  </div>
+</div>
+
+<script src="vendor/mpegts.js"></script>
+<script src="vendor/hls.min.js"></script>
+<script src="vendor/mqtt.min.js"></script>
+<script src="player.js"></script>
+<script src="sync.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
