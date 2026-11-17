@@ -258,3 +258,5 @@ details.paste textarea{margin:10px 0}
 .fdays{display:inline-block;background:#c9862f;color:#2a1208;font-size:13px;font-weight:800;border-radius:6px;padding:1px 7px;vertical-align:2px;white-space:nowrap}
 .modal .row{flex-wrap:wrap}
 .ev2 .ln{overflow-wrap:anywhere}
+.ev2 .ln.fx{color:#f0c9a6}
+.fline>span:first-child{min-width:0}

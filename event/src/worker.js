@@ -61,7 +61,8 @@ async function migrate(env) {
     `ALTER TABLE users ADD COLUMN rules_ok INTEGER DEFAULT 0`, `ALTER TABLE users ADD COLUMN blocked INTEGER DEFAULT 0`,
     `ALTER TABLE login_tokens ADD COLUMN invite TEXT`, `ALTER TABLE claims ADD COLUMN note TEXT`,
     // Hátíðir: standa marga daga (end_date), slóð á heimasíðu/Facebook hátíðarinnar (url); viðburður getur verið hluti af hátíð (festival_id).
-    `ALTER TABLE events ADD COLUMN end_date TEXT DEFAULT ''`, `ALTER TABLE events ADD COLUMN url TEXT DEFAULT ''`, `ALTER TABLE events ADD COLUMN festival_id TEXT DEFAULT ''`]) {
+    `ALTER TABLE events ADD COLUMN end_date TEXT DEFAULT ''`, `ALTER TABLE events ADD COLUMN url TEXT DEFAULT ''`, `ALTER TABLE events ADD COLUMN festival_id TEXT DEFAULT ''`,
+    `ALTER TABLE events ADD COLUMN headline INTEGER DEFAULT 0`]) {
     try { await env.DB.prepare(sql).run(); } catch {}
   }
 }
@@ -681,7 +682,7 @@ async function apiUpdatePlace(req, env, user, placeId) {
 
 /* ---------------- Viðburðir ---------------- */
 
-const EV_COLS = `e.id,e.place_id,e.page_id,e.title,e.date,e.end_date,e.url,e.festival_id,e.time,e.end_time,e.price,e.ticket,e.door,e.age,e.age_text,e.tags,e.other_label,e.fam,e.descr,e.poster,e.status,e.cancelled,e.cancel_note,e.time_changed,e.old_time,e.genres,
+const EV_COLS = `e.id,e.place_id,e.page_id,e.title,e.date,e.end_date,e.url,e.festival_id,e.headline,e.time,e.end_time,e.price,e.ticket,e.door,e.age,e.age_text,e.tags,e.other_label,e.fam,e.descr,e.poster,e.status,e.cancelled,e.cancel_note,e.time_changed,e.old_time,e.genres,
   p.name page_name,p.kind page_kind`;
 function outEvent(r) {
   let tags = [];
@@ -744,6 +745,7 @@ function cleanEvent(b) {
     title, date, end_date, time, end_time, price,
     url: tags.includes("hatid") ? httpUrl(b.url) : "",
     festival_id: tags.includes("hatid") ? "" : str(b.festival_id, 60),
+    headline: b.headline ? 1 : 0,
     ticket: httpUrl(b.ticket),
     door: b.door ? 1 : 0,
     age,
@@ -758,12 +760,16 @@ function cleanEvent(b) {
 }
 
 // „Hluti af hátíð“: bara hátíð sem er til og stendur yfir á þeim degi.
-async function validFestival(env, c) {
-  if (!c.festival_id) return "";
-  const f = await env.DB.prepare(`SELECT date,end_date,tags FROM events WHERE id=? AND status='approved'`).bind(c.festival_id).first();
-  if (!f || !String(f.tags || "").includes("hatid")) return "";
+async function validFestival(env, c, user) {
+  const no = () => { c.headline = 0; return ""; };
+  if (!c.festival_id) return no();
+  const f = await env.DB.prepare(`SELECT date,end_date,tags,page_id FROM events WHERE id=? AND status='approved'`).bind(c.festival_id).first();
+  if (!f || !String(f.tags || "").includes("hatid")) return no();
   const end = f.end_date || f.date;
-  return c.date >= f.date && c.date <= end ? c.festival_id : "";
+  if (!(c.date >= f.date && c.date <= end)) return no();
+  // „Aðalatriði dagsins“ má bara hátíðin sjálf velja (eða eigandi síðunnar).
+  if (c.headline && !(user && (user.is_owner || (await roleIn(env, user, f.page_id))))) c.headline = 0;
+  return c.festival_id;
 }
 async function venuePageOf(env, placeId) {
   return env.DB.prepare(`SELECT id,name FROM pages WHERE place_id=? AND kind='venue' LIMIT 1`).bind(placeId).first();
@@ -782,7 +788,7 @@ async function apiCreateEvent(req, env, user) {
   if (!place) return err("Veldu stað.");
   const c = cleanEvent(b);
   if (c.error) return err(c.error);
-  c.festival_id = await validFestival(env, c);
+  c.festival_id = await validFestival(env, c, user);
 
   // Staðurinn er hliðvörðurinn.
   const vp = await venuePageOf(env, placeId);
@@ -800,9 +806,9 @@ async function apiCreateEvent(req, env, user) {
     ids.push(id);
     stmts.push(
       env.DB.prepare(
-        `INSERT INTO events (id,place_id,page_id,title,date,end_date,url,festival_id,time,end_time,price,ticket,door,age,age_text,tags,genres,other_label,fam,descr,poster,status,created_by,created,updated)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-      ).bind(id, placeId, pageId, c.title, addDaysISO(c.date, i * 7), c.end_date ? addDaysISO(c.end_date, i * 7) : "", c.url, c.festival_id, c.time, c.end_time, c.price, c.ticket, c.door, c.age, c.age_text,
+        `INSERT INTO events (id,place_id,page_id,title,date,end_date,url,festival_id,headline,time,end_time,price,ticket,door,age,age_text,tags,genres,other_label,fam,descr,poster,status,created_by,created,updated)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).bind(id, placeId, pageId, c.title, addDaysISO(c.date, i * 7), c.end_date ? addDaysISO(c.end_date, i * 7) : "", c.url, c.festival_id, c.headline, c.time, c.end_time, c.price, c.ticket, c.door, c.age, c.age_text,
         c.tags, c.genres, c.other_label, c.fam, c.descr, c.poster, status, user.id, now(), now())
     );
   }
@@ -824,7 +830,7 @@ async function apiUpdateEvent(req, env, user, id) {
   if (!b) return err("Ógild gögn.");
   const c = cleanEvent(b);
   if (c.error) return err(c.error);
-  c.festival_id = await validFestival(env, c);
+  c.festival_id = await validFestival(env, c, user);
   let placeId = ev.place_id, status = ev.status;
   if (b.place_id && b.place_id !== ev.place_id) {
     const place = await env.DB.prepare(`SELECT id FROM places WHERE id=?`).bind(str(b.place_id, 60)).first();
@@ -840,9 +846,9 @@ async function apiUpdateEvent(req, env, user, id) {
   const changed = ev.date !== c.date || ev.time !== c.time;
   const highlight = changed && b.highlight_change && ev.status === "approved";
   await env.DB.prepare(
-    `UPDATE events SET place_id=?,title=?,date=?,end_date=?,url=?,festival_id=?,time=?,end_time=?,price=?,ticket=?,door=?,age=?,age_text=?,tags=?,genres=?,other_label=?,fam=?,descr=?,poster=?,status=?,
+    `UPDATE events SET place_id=?,title=?,date=?,end_date=?,url=?,festival_id=?,headline=?,time=?,end_time=?,price=?,ticket=?,door=?,age=?,age_text=?,tags=?,genres=?,other_label=?,fam=?,descr=?,poster=?,status=?,
        time_changed=?,old_time=?,updated=? WHERE id=?`
-  ).bind(placeId, c.title, c.date, c.end_date, c.url, c.festival_id, c.time, c.end_time, c.price, c.ticket, c.door, c.age, c.age_text, c.tags, c.genres, c.other_label, c.fam, c.descr,
+  ).bind(placeId, c.title, c.date, c.end_date, c.url, c.festival_id, c.headline, c.time, c.end_time, c.price, c.ticket, c.door, c.age, c.age_text, c.tags, c.genres, c.other_label, c.fam, c.descr,
     c.poster, status, highlight ? 1 : ev.time_changed, highlight ? `${ev.date} ${ev.time}` : ev.old_time, now(), id).run();
   return json({ ok: true, status });
 }

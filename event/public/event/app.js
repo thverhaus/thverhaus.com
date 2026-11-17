@@ -334,15 +334,32 @@ function adHtml(i, kind) {
 }
 function renderSideAd() { const el = $('adSide'); if (el) el.innerHTML = adHtml(ADS.length - 1, 'box'); }
 function renderList() {
-  const list = visibleEvents();
+  let list = visibleEvents();
+  // Viðburðir sem eru „hluti af hátíð“ birtast ekki stakir: þeir fara inn í dagslínu hátíðarinnar
+  // (aðalatriði dagsins nefnt + „+2 fleiri“), svo hátíð drekki ekki listanum.
+  const subsBy = {}, addF = [];
+  list = list.filter((e) => {
+    const f = e.festival_id && EVENTS.find((x) => x.id === e.festival_id);
+    if (!f || isOver(f)) return true;
+    const k = dayKey(e);
+    ((subsBy[f.id] = subsBy[f.id] || {})[k] = subsBy[f.id][k] || []).push(e);
+    if (!addF.includes(f)) addF.push(f);
+    return false;
+  });
+  addF.forEach((f) => { if (!list.includes(f)) list.push(f); }); // hátíðin sést ef hún á viðburð sem passar við síuna
+  const headOf = (arr) => arr && arr.length ? (arr.find((x) => x.headline) || arr.slice().sort((a, b) => ((a.time || '') < (b.time || '') ? 1 : -1))[0]) : null;
+  const festExtra = (e, k) => {
+    const arr = (subsBy[e.id] || {})[k], h = headOf(arr);
+    return h ? ` · ⭐ ${esc(h.title)} ${L('kl.', '')} ${esc(h.time || '')}${arr.length > 1 ? ` · +${arr.length - 1} ${L('fleiri', 'more')}` : ''}` : '';
+  };
   // Hátíðir: stórt spjald fyrsta daginn sem sést, svo bara mjó lína hina dagana („dagur 2 af 4“).
   const [ra, rb] = dateRange();
   const items = [];
   for (const e of list) {
-    if (!e.end_date) { items.push({ k: dayKey(e), t: e.time || '', e }); continue; }
-    const first = [e.date, ra, iso(TODAY)].sort()[2], last = e.end_date < rb ? e.end_date : rb, total = daysBetween(e.date, e.end_date) + 1;
-    items.push({ k: first, t: e.time || '', e });
-    for (let d = iso(addDays(parseISO(first), 1)), n = 0; d <= last && n < 21; d = iso(addDays(parseISO(d), 1)), n++) items.push({ k: d, t: '', slim: true, e, n: daysBetween(e.date, d) + 1, total });
+    if (!isFest(e)) { items.push({ k: dayKey(e), t: e.time || '', e }); continue; }
+    const first = [e.date, ra, iso(TODAY)].sort()[2], end = festEnd(e), last = end < rb ? end : rb, total = daysBetween(e.date, end) + 1;
+    items.push({ k: first, t: e.time || '', e, extra: festExtra(e, first) });
+    for (let d = iso(addDays(parseISO(first), 1)), n = 0; d <= last && n < 21; d = iso(addDays(parseISO(d), 1)), n++) items.push({ k: d, t: '', slim: true, e, n: daysBetween(e.date, d) + 1, total, extra: festExtra(e, d) });
   }
   items.sort((x, y) => (x.k < y.k ? -1 : x.k > y.k ? 1 : (y.slim ? 1 : 0) - (x.slim ? 1 : 0) || (x.t < y.t ? -1 : x.t > y.t ? 1 : 0)));
   // Hópað eftir dögum; fyrirsögn dagsins festist efst þar til næsti dagur ýtir henni upp.
@@ -357,10 +374,10 @@ function renderList() {
     }
     if (it.slim) {
       const p = PLACE[it.e.place_id] || {};
-      html += `<button class="fline" data-ev="${it.e.id}">🎪 <b>${esc(it.e.title)}</b> – ${L('dagur', 'day')} ${it.n} ${L('af', 'of')} ${it.total}<span class="r">${esc(p.town || p.name || '')} ›</span></button>`;
+      html += `<button class="fline" data-ev="${it.e.id}"><span>🎪 <b>${esc(it.e.title)}</b> – ${L('dagur', 'day')} ${it.n} ${L('af', 'of')} ${it.total}${it.extra}</span><span class="r">${esc(p.town || p.name || '')} ›</span></button>`;
       return;
     }
-    html += evRow(it.e);
+    html += it.extra ? evRow(it.e).replace('</span>\n      <span class="ln">', `</span>\n      <span class="ln fx">${it.extra.slice(3)}</span>\n      <span class="ln">`) : evRow(it.e);
     full++;
     if (full % 5 === 0 && full < fulls) html += adHtml(ai++);
   });
@@ -857,7 +874,9 @@ function eventDetailHtml(e) {
    </div>
    ${(() => { const f = e.festival_id && EVENTS.find((x) => x.id === e.festival_id); return f ? `<p><button class="btn sm" data-fest="${f.id}">🎪 ${L('Hluti af', 'Part of')} ${esc(f.title)} ›</button></p>` : ''; })()}
    ${e.descr ? `<p style="white-space:pre-wrap">${esc(e.descr)}</p>` : ''}
-   ${isFest(e) ? `<p class="role">${L('Dagskrána í heild finnurðu hjá hátíðinni sjálfri.', 'See the full programme on the festival’s own page.')}</p>` : ''}
+   ${isFest(e) ? (() => { const subs = EVENTS.filter((x) => x.festival_id === e.id && !isOver(x)).sort((a, b) => (a.date + a.time < b.date + b.time ? -1 : 1));
+      return (subs.length ? `<h3 style="margin:14px 0 6px">${L('Á síðunni hjá okkur', 'Listed here')}</h3>${subs.map((x) => `<button class="fline" data-sub="${x.id}"><span>${x.headline ? '⭐ ' : ''}<b>${esc(x.title)}</b> · ${esc(fmtShort(x.date))} ${L('kl.', '')} ${esc(x.time || '')}</span><span class="r">${esc((PLACE[x.place_id] || {}).name || '')} ›</span></button>`).join('')}` : '')
+        + `<p class="role">${L('Dagskrána í heild finnurðu hjá hátíðinni sjálfri.', 'See the full programme on the festival’s own page.')}</p>`; })() : ''}
    <div class="row">${e.url ? `<a class="btn primary" href="${esc(e.url)}" target="_blank" rel="noopener">🌐 ${L('Heimasíða hátíðarinnar', 'Festival website')}</a>` : ''}${e.ticket ? `<a class="btn primary" href="${esc(e.ticket)}" target="_blank" rel="noopener">🎟️ ${L('Kaupa miða', 'Buy tickets')}</a>` : ''}
     <button class="btn" data-share>🔗 ${L('Afrita hlekk', 'Copy link')}</button>
     ${p.lat ? `<button class="btn" data-onmap>🗺️ ${L('Sýna á korti', 'Show on map')}</button>` : ''}</div>
@@ -872,6 +891,7 @@ async function openEvent(id) {
     const url = location.origin + BASE + '/?e=' + id;
     try { await navigator.clipboard.writeText(url); toast(L('Hlekkur afritaður', 'Link copied')); } catch (_e) { prompt(L('Afritaðu hlekkinn:', 'Copy the link:'), url); }
   };
+  m.el.querySelectorAll('[data-sub]').forEach((b) => (b.onclick = () => { m.close(); openEvent(b.dataset.sub); }));
   const fb = m.el.querySelector('[data-fest]');
   if (fb) fb.onclick = () => { m.close(); openEvent(fb.dataset.fest); };
   const om = m.el.querySelector('[data-onmap]');
@@ -1467,7 +1487,9 @@ function openEventForm(ev, isCopy) {
     const isH = !!f.querySelector('[data-tag="hatid"].on'), d = f.date.value, pl = PLACE[pf ? pf.value() : ''];
     const cands = isH || !d || !pl ? [] : EVENTS.filter((x) => isFest(x) && x.id !== ev.id && x.date <= d && festEnd(x) >= d && PLACE[x.place_id] && PLACE[x.place_id].muni === pl.muni);
     const cur = ev.festival_id || '';
-    box.innerHTML = cands.map((x) => `<label class="cbx"><input type="checkbox" name="fest_${x.id}" data-fid="${x.id}" ${x.id === cur ? 'checked' : ''}><span>🎪 Hluti af ${esc(x.title)}</span></label>`).join('');
+    const mine = (x) => ME.user && (ME.user.owner || (ME.pages || []).some((p) => p.id === x.page_id));
+    box.innerHTML = cands.map((x) => `<label class="cbx"><input type="checkbox" name="fest_${x.id}" data-fid="${x.id}" ${x.id === cur ? 'checked' : ''}><span>🎪 Hluti af ${esc(x.title)}</span></label>`
+      + (mine(x) ? `<label class="cbx" style="margin-left:26px"><input type="checkbox" data-head="${x.id}" ${x.id === cur && ev.headline ? 'checked' : ''}><span>⭐ Aðalatriði dagsins á hátíðinni (nefnt í dagslínunni)</span></label>` : '')).join('');
     box.querySelectorAll('[data-fid]').forEach((c) => (c.onchange = () => { if (c.checked) box.querySelectorAll('[data-fid]').forEach((o) => { if (o !== c) o.checked = false; }); }));
   };
   const pf = wirePlaceField(f, 'ev', () => setTimeout(refreshFest, 0));
@@ -1526,6 +1548,7 @@ function openEventForm(ev, isCopy) {
       page_id: f.page_id.value, place_id: pf.value(), title: f.elements.title.value, date: f.date.value, time: f.time.value, end_time: f.end_time.value,
       price: f.price.value === '' ? null : Number(f.price.value), door: f.door.checked, ticket: f.ticket.value, age: f.age.value, age_text: f.age_text.value,
       end_date: f.end_date.value, url: f.url.value, festival_id: ((f.querySelector('[data-fid]:checked') || {}).dataset || {}).fid || '',
+      headline: !!f.querySelector('[data-head]:checked'),
       tags: tagsSel, genres: [...f.querySelectorAll('[data-genre].on')].map((c) => c.dataset.genre), other_label: f.other_label.value, fam: f.fam.checked, descr: f.descr.value, poster: f.poster.value,
       repeat_weeks: f.repeat_weeks ? Number(f.repeat_weeks.value) : 1, highlight_change: f.highlight_change ? f.highlight_change.checked : false,
     };
