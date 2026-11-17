@@ -58,7 +58,7 @@ async function migrate(env) {
   for (const sql of [`ALTER TABLE places ADD COLUMN cat TEXT DEFAULT ''`, `ALTER TABLE events ADD COLUMN genres TEXT DEFAULT '[]'`,
     `ALTER TABLE users ADD COLUMN invited_by TEXT`, `ALTER TABLE users ADD COLUMN invites_left INTEGER DEFAULT 5`,
     `ALTER TABLE users ADD COLUMN rules_ok INTEGER DEFAULT 0`, `ALTER TABLE users ADD COLUMN blocked INTEGER DEFAULT 0`,
-    `ALTER TABLE login_tokens ADD COLUMN invite TEXT`]) {
+    `ALTER TABLE login_tokens ADD COLUMN invite TEXT`, `ALTER TABLE claims ADD COLUMN note TEXT`]) {
     try { await env.DB.prepare(sql).run(); } catch {}
   }
 }
@@ -459,9 +459,12 @@ async function apiClaim(req, env, user) {
   const recent = await env.DB.prepare(`SELECT COUNT(*) n FROM claims WHERE user_id=? AND created>?`).bind(user.id, now() - 86400e3).first();
   if (recent && recent.n >= 10) return err("Of margar beiðnir í dag. Reyndu aftur á morgun.", 429);
   const id = newId("c");
-  if (!pl.email) {
-    await env.DB.prepare(`INSERT INTO claims (id,place_id,user_id,status,created) VALUES (?,?,?,'manual',?)`).bind(id, pl.id, user.id, now()).run();
-    return json({ ok: true, manual: true });
+  // Ekkert netfang skráð, eða notandinn segir skráða netfangið rangt → eigandi síðunnar samþykkir.
+  if (!pl.email || b.wrong) {
+    const sug = str(b.suggest, 200).toLowerCase();
+    await env.DB.prepare(`INSERT INTO claims (id,place_id,user_id,status,created,email,note) VALUES (?,?,?,'manual',?,?,?)`)
+      .bind(id, pl.id, user.id, now(), isEmail(sug) ? sug : "", b.wrong ? "wrong" : "").run();
+    return json({ ok: true, manual: true, wrong: !!b.wrong });
   }
   const token = randomToken();
   await env.DB.prepare(`INSERT INTO claims (id,place_id,user_id,token,email,status,created,expires) VALUES (?,?,?,?,?,'sent',?,?)`)
@@ -489,14 +492,18 @@ async function apiClaimVerify(req, env, url) {
 }
 async function apiAdminClaims(req, env, user) {
   if (!user.is_owner) return err("Aðeins eigandi.", 403);
-  const r = await env.DB.prepare(`SELECT c.id,c.created,p.name place,p.town,p.web,p.fb,u.name,u.email FROM claims c JOIN places p ON p.id=c.place_id JOIN users u ON u.id=c.user_id WHERE c.status='manual' ORDER BY c.created`).all();
+  const r = await env.DB.prepare(`SELECT c.id,c.created,c.note,c.email suggest,p.email current,p.name place,p.town,p.web,p.fb,u.name,u.email FROM claims c JOIN places p ON p.id=c.place_id JOIN users u ON u.id=c.user_id WHERE c.status='manual' ORDER BY c.created`).all();
   return json({ items: r.results });
 }
 async function apiAdminClaimAction(req, env, user, id, action) {
   if (!user.is_owner) return err("Aðeins eigandi.", 403);
-  const c = await env.DB.prepare(`SELECT place_id,user_id FROM claims WHERE id=? AND status='manual'`).bind(id).first();
+  const c = await env.DB.prepare(`SELECT place_id,user_id,email FROM claims WHERE id=? AND status='manual'`).bind(id).first();
   if (!c) return err("Beiðnin fannst ekki.", 404);
-  if (action === "approve") await grantVenue(env, c.place_id, c.user_id);
+  if (action === "approve") {
+    await grantVenue(env, c.place_id, c.user_id);
+    // Rétta netfangið vistað fyrir staðinn (svo næsti fái staðfestingu á rétt netfang).
+    if (c.email) await env.DB.prepare(`UPDATE places SET email=?, email_src='manual' WHERE id=?`).bind(c.email, c.place_id).run();
+  }
   await env.DB.prepare(`UPDATE claims SET status=? WHERE id=?`).bind(action === "approve" ? "approved" : "rejected", id).run();
   return json({ ok: true });
 }

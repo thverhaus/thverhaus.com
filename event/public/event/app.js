@@ -973,7 +973,7 @@ async function loadClaims() {
   if (!box) return;
   let r;
   try { r = await api('/admin/claims'); } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
-  box.innerHTML = r.items.map((c) => `<div class="card"><b>${esc(c.name || c.email)}</b> ${c.name ? `<span class="role">${esc(c.email)}</span>` : ''} vill sjá um <b>${esc(c.place)}</b>${c.town ? ' – ' + esc(c.town) : ''}
+  box.innerHTML = r.items.map((c) => `<div class="card">${c.note === 'wrong' ? `<div class="note">⚠️ Segir skráða netfangið rangt${c.current ? ` (skráð: ${esc(c.current)})` : ''}.${c.suggest ? ` Rétta netfangið: <b>${esc(c.suggest)}</b> – vistast ef þú samþykkir.` : ''}</div>` : ''}<b>${esc(c.name || c.email)}</b> ${c.name ? `<span class="role">${esc(c.email)}</span>` : ''} vill sjá um <b>${esc(c.place)}</b>${c.town ? ' – ' + esc(c.town) : ''}
       <div class="row" style="margin:8px 0">${c.web ? `<a class="btn sm ghost" href="${esc(c.web)}" target="_blank" rel="noopener">🌐 Heimasíða</a>` : ''}${c.fb ? `<a class="btn sm ghost" href="${esc(c.fb)}" target="_blank" rel="noopener">📘 Facebook</a>` : ''}
       <a class="btn sm ghost" href="https://www.google.com/search?q=${encodeURIComponent(c.place + ' ' + (c.town || '') + ' netfang')}" target="_blank" rel="noopener">🔎 Leita</a></div>
       <div class="row"><button class="btn sm primary" data-cl="${c.id}" data-a="approve">✓ Samþykkja</button><button class="btn sm ghost" data-cl="${c.id}" data-a="reject">✕ Hafna</button></div></div>`).join('') || '<p class="role">Engar beiðnir.</p>';
@@ -1113,14 +1113,22 @@ async function renderMine() {
         const m = openModal(`<h2>🏠 ${nm}</h2>
           ${pv.to ? `<p>📧 Staðfestingarpóstur verður sendur á <b>${esc(pv.to)}</b> – netfangið sem staðurinn birtir.</p><p>Sá sem opnar þann póst og smellir á hlekkinn fær að stjórna staðnum.</p>`
             : `<p>Við fundum ekkert netfang fyrir staðinn. Beiðnin fer til umsjónarmanns síðunnar, sem staðfestir hana.</p>`}
-          <p><b>Ertu viss?</b></p><div class="row"><button class="btn primary" data-y>${pv.to ? '📧 Já, senda' : 'Já, halda áfram'}</button><button class="btn ghost" data-n>Hætta við</button></div>`, { onClose: () => res(false) });
+          <p><b>Ertu viss?</b></p><div class="row"><button class="btn primary" data-y>${pv.to ? '📧 Já, senda' : 'Já, halda áfram'}</button><button class="btn ghost" data-n>Hætta við</button></div>
+          ${pv.to ? `<p style="margin-top:14px"><button class="btn sm ghost" data-w>❓ Þetta er ekki rétt netfang</button></p>
+          <div data-wbox class="hidden"><label>Rétta netfang staðarins (má sleppa)</label><input class="inp" type="email" data-sug placeholder="t.d. info@stadurinn.is">
+            <p class="role">Beiðnin fer þá til umsjónarmanns síðunnar, sem staðfestir hana.</p><button class="btn primary" data-ws>Senda beiðni</button></div>` : ''}`, { onClose: () => res(false) });
         m.el.querySelector('[data-y]').onclick = () => { res(true); m.close(); };
         m.el.querySelector('[data-n]').onclick = () => m.close();
+        const w = m.el.querySelector('[data-w]');
+        if (w) {
+          w.onclick = () => { m.el.querySelector('[data-wbox]').classList.remove('hidden'); w.classList.add('hidden'); m.el.querySelector('[data-sug]').focus(); };
+          m.el.querySelector('[data-ws]').onclick = () => { res({ wrong: true, suggest: m.el.querySelector('[data-sug]').value.trim() }); m.close(); };
+        }
       });
       if (!ok) return;
-      const r = await api('/claim', { method: 'POST', body: { place_id: id } });
+      const r = await api('/claim', { method: 'POST', body: Object.assign({ place_id: id }, ok === true ? {} : ok) });
       $('claimMsg').innerHTML = r.already ? '<div class="note">✅ Þú sérð þegar um þennan stað.</div>'
-        : r.manual ? '<div class="note">Við fundum ekkert netfang fyrir þennan stað. Beiðnin er komin til umsjónarmanns síðunnar, sem staðfestir hana.</div>'
+        : r.manual ? `<div class="note">${r.wrong ? 'Takk! ' : 'Við fundum ekkert netfang fyrir þennan stað. '}Beiðnin er komin til umsjónarmanns síðunnar, sem staðfestir hana.</div>`
         : `<div class="note">📧 Við sendum staðfestingu á <b>${esc(r.sentTo)}</b> – netfangið sem staðurinn birtir. Opnaðu þann póst og smelltu á hlekkinn.</div>`;
     } catch (e) { $('claimMsg').innerHTML = `<p class="err">${esc(e.message)}</p>`; }
   };
