@@ -54,7 +54,7 @@ function emailsIn(html) {
   const txt = html.replace(/&#64;|&#x40;|\[at\]|\(at\)| at /gi, "@").replace(/%40/g, "@");
   for (const m of txt.matchAll(/mailto:([^"'?>\s]+)/gi)) out.add(decodeURIComponent(m[1]).toLowerCase());
   for (const m of txt.matchAll(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g)) out.add(m[0].toLowerCase());
-  return [...out].filter((e) => !BAD_MAIL.test(e) && e.length < 80);
+  return [...out].filter((e) => /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(e) && !BAD_MAIL.test(e) && e.length < 80);
 }
 async function getHtml(url) {
   const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 8000);
@@ -103,7 +103,8 @@ export async function contactsStep(env) {
       try { used++; web = await googleWebsite(env, p); if (web) webSrc = "google"; }
       catch (e) { log.push(`${p.name}: ${String(e.message || e)}`); used--; continue; } // ekki merkja yfirfarinn – reynt aftur
     }
-    if (!email && web) { email = await emailFromSite(web); if (email) emailSrc = "web"; }
+    // Ein slæm heimasíða má aldrei stöðva alla leitina.
+    if (!email && web) { try { email = await emailFromSite(web); if (email) emailSrc = "web"; } catch (_e) { email = ""; } }
     await env.DB.prepare(`UPDATE places SET contact_checked=?, web=CASE WHEN web='' THEN ? ELSE web END, web_src=CASE WHEN web_src='' THEN ? ELSE web_src END,
       email=CASE WHEN email='' THEN ? ELSE email END, email_src=CASE WHEN email_src='' THEN ? ELSE email_src END WHERE id=?`)
       .bind(Date.now(), web || "", webSrc, email || "", emailSrc, p.id).run();
