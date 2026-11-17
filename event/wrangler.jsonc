@@ -24,9 +24,12 @@
     "BASE_PATH": "/event",
     "BASE_URL": "https://thverhaus.com",
     "MAIL_FROM": "Viðburðir <event@thverhaus.com>"
-  }
+  },
   // Leyndarmál (sett inn í Cloudflare, aldrei í kóða):
   //   RESEND_API_KEY – lykill frá resend.com
   //   SITE_PASSWORD  – lykilorð til að opna síðuna á meðan prófað er (tómt = opin)
   //   OWNER_EMAIL    – netfang Júlíusar (eigandi síðunnar)
+//   GOOGLE_PLACES_KEY – lykill frá Google (finna heimasíður staða)
+  // Skráning villna (ókeypis upp að 200.000 atvikum á dag) – sést í Cloudflare → vidburdir → Observability
+  "observability": { "enabled": true }
 }
