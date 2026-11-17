@@ -16,6 +16,16 @@ export async function contactsSchema(env) {
     `ALTER TABLE places ADD COLUMN email_src TEXT DEFAULT ''`, `ALTER TABLE places ADD COLUMN web_src TEXT DEFAULT ''`,
     `ALTER TABLE places ADD COLUMN contact_checked INTEGER DEFAULT 0`,
   ]) { try { await env.DB.prepare(sql).run(); } catch (_e) {} }
+  // Ný regla (samhengi netfangs): netföng sem sótt voru af heimasíðum eru sótt aftur. Google er EKKI spurt aftur
+  // (heimasíðurnar eru vistaðar), svo bara staðir með heimasíðu fara aftur í gegn.
+  const rule = await env.DB.prepare(`SELECT v FROM meta WHERE k='contacts_rule'`).first();
+  if (!rule || rule.v !== "2") {
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE places SET email='', email_src='' WHERE email_src='web'`),
+      env.DB.prepare(`UPDATE places SET contact_checked=0 WHERE web<>'' AND email=''`),
+      env.DB.prepare(`INSERT OR REPLACE INTO meta (k,v) VALUES ('contacts_rule','2')`),
+    ]);
+  }
   const row = await env.DB.prepare(`SELECT v FROM meta WHERE k='contacts_osm'`).first();
   if (row && row.v === "1") return;
   const stmts = Object.entries(OSM_CONTACTS).map(([id, [email, web, fb, phone]]) =>
@@ -49,12 +59,28 @@ async function googleWebsite(env, p) {
   return "";
 }
 
+// Netföng með samhengi: hvað stendur í kringum netfangið á síðunni.
+// Við „Hafa samband / Netfang / Bókanir / Contact“ = gott. Við „Hönnun / Design by / Powered by“ = hunsað (vefhönnuður).
+const GOOD_CTX = /(hafa samband|samband|netfang|t[öo]lvup[óo]st|b[óo]kan|b[óo]ka |pantan|fyrirspurn|contact|e-?mail|booking|reservation|info)/i;
+const BAD_CTX = /(h[öo]nnun|hanna[ðd]|vefh[öo]nnun|vefs[íi][ðd]a ger[ðd]|vefur ger|sm[íi][ðd]a[ðd]|design(ed)? by|developed by|powered by|made by|website by|web by|created by|built by|webdesign|web design)/i;
 function emailsIn(html) {
-  const out = new Set();
-  const txt = html.replace(/&#64;|&#x40;|\[at\]|\(at\)| at /gi, "@").replace(/%40/g, "@");
-  for (const m of txt.matchAll(/mailto:([^"'?>\s]+)/gi)) out.add(decodeURIComponent(m[1]).toLowerCase());
-  for (const m of txt.matchAll(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g)) out.add(m[0].toLowerCase());
-  return [...out].filter((e) => /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(e) && !BAD_MAIL.test(e) && e.length < 80);
+  const txt = html.replace(/&#64;|&#x40;|\[at\]|\(at\)/gi, "@").replace(/%40/g, "@");
+  const plain = txt.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ").replace(/<a [^>]*href=["']mailto:([^"'?>\s]+)[^>]*>/gi, " $1 ").replace(/<[^>]+>/g, " ").replace(/&nbsp;|\s+/g, " ");
+  const found = new Map();
+  for (const m of plain.matchAll(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g)) {
+    const e = m[0].toLowerCase();
+    if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(e) || BAD_MAIL.test(e) || e.length >= 80) continue;
+    // Orðið sem stendur NÆST á undan netfanginu ræður (önnur netföng í textanum eru tekin út fyrst).
+    const before = plain.slice(Math.max(0, m.index - 100), m.index).replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, " ".repeat(5));
+    const lastPos = (re) => { let p = -1; for (const x of before.matchAll(new RegExp(re.source, "gi"))) p = x.index; return p; };
+    const gp = lastPos(GOOD_CTX), bp = lastPos(BAD_CTX);
+    const bad = bp > gp, good = gp > bp;
+    const prev = found.get(e) || { e, score: 0, bad: false };
+    prev.score += good ? 3 : 1;
+    prev.bad = prev.bad || (bad && !good);
+    found.set(e, prev);
+  }
+  return [...found.values()].filter((x) => !x.bad).sort((a, b) => b.score - a.score);
 }
 async function getHtml(url) {
   const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 8000);
@@ -66,8 +92,9 @@ async function getHtml(url) {
 }
 function pickEmail(list, web) {
   if (!list.length) return "";
-  const h = host(web);
-  return list.find((e) => h && e.endsWith("@" + h)) || list.find((e) => h && e.split("@")[1].endsWith(h.split(".").slice(-2).join("."))) || list[0];
+  const h = host(web), best = list[0].score;
+  const top = list.filter((x) => x.score === best).map((x) => x.e);
+  return top.find((e) => h && e.endsWith("@" + h)) || top[0];
 }
 async function emailFromSite(web) {
   if (!web || /facebook\.com|instagram\.com/i.test(web)) return "";

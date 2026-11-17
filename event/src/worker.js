@@ -41,6 +41,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)`,
   `CREATE TABLE IF NOT EXISTS invites (code TEXT PRIMARY KEY, from_user TEXT NOT NULL, created INTEGER, used_by TEXT, used_at INTEGER)`,
   `CREATE TABLE IF NOT EXISTS invite_requests (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, status TEXT DEFAULT 'pending', created INTEGER)`,
+  `CREATE TABLE IF NOT EXISTS claims (id TEXT PRIMARY KEY, place_id TEXT NOT NULL, user_id TEXT NOT NULL, token TEXT, email TEXT, status TEXT DEFAULT 'sent', created INTEGER, expires INTEGER)`,
   `CREATE TABLE IF NOT EXISTS feedback (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, anon INTEGER DEFAULT 0, text TEXT NOT NULL, seen INTEGER DEFAULT 0, created INTEGER)`,
   `CREATE INDEX IF NOT EXISTS ev_date ON events(date)`,
   `CREATE INDEX IF NOT EXISTS ev_place ON events(place_id)`,
@@ -342,6 +343,7 @@ async function apiMe(req, env, user) {
     pending: await pendingCount(env, user.id),
     invitesLeft: user.is_owner ? null : user.invites_left == null ? 5 : user.invites_left,
     rulesOk: !!user.rules_ok,
+    claimRequests: user.is_owner ? ((await env.DB.prepare(`SELECT COUNT(*) n FROM claims WHERE status='manual'`).first()) || {}).n || 0 : 0,
     inviteRequests: user.is_owner ? ((await env.DB.prepare(`SELECT COUNT(*) n FROM invite_requests WHERE status='pending'`).first()) || {}).n || 0 : 0,
     feedbackUnread: user.is_owner ? ((await env.DB.prepare(`SELECT COUNT(*) n FROM feedback WHERE seen=0`).first()) || {}).n || 0 : 0,
   });
@@ -423,6 +425,78 @@ async function apiAdminBlock(req, env, user, id, action) {
   }
   if (stmts.length) await env.DB.batch(stmts);
   return json({ ok: true, count: ids.length });
+}
+
+/* ---------------- „Þetta er minn staður“ ----------------
+   Staðfestingin fer á netfangið sem STAÐURINN birtir opinberlega (heimasíða/OSM), ekki netfang sem notandinn velur.
+   Smellur á hlekkinn = stjórnandi staðarins. Ef staðurinn á ekkert skráð netfang fer beiðnin til eiganda síðunnar. */
+const maskEmail = (e) => { const [a, d] = String(e).split("@"); return (a ? a[0] : "") + "•••@" + (d || ""); };
+async function ensureVenuePage(env, placeId) {
+  const ex = await env.DB.prepare(`SELECT id FROM pages WHERE place_id=? AND kind='venue' LIMIT 1`).bind(placeId).first();
+  if (ex) return ex.id;
+  const pl = await env.DB.prepare(`SELECT name FROM places WHERE id=?`).bind(placeId).first();
+  const id = newId("p");
+  for (let i = 0; i < 5; i++) {
+    try { await env.DB.prepare(`INSERT INTO pages (id,kind,name,code,place_id,created) VALUES (?,?,?,?,?,?)`).bind(id, "venue", pl.name, newCode(), placeId, now()).run(); return id; }
+    catch (e) { if (!String(e).includes("UNIQUE")) throw e; }
+  }
+  throw new Error("Ekki tókst að búa til síðu staðarins.");
+}
+async function grantVenue(env, placeId, userId) {
+  const pageId = await ensureVenuePage(env, placeId);
+  await env.DB.prepare(`INSERT INTO members (page_id,user_id,role) VALUES (?,?,'admin') ON CONFLICT(page_id,user_id) DO UPDATE SET role='admin'`).bind(pageId, userId).run();
+  return pageId;
+}
+async function apiClaim(req, env, user) {
+  if (!user.rules_ok) return err("Lestu reglurnar og samþykktu þær fyrst.", 403);
+  const b = (await readJson(req)) || {};
+  const pl = await env.DB.prepare(`SELECT id,name,town,email,web,fb FROM places WHERE id=?`).bind(str(b.place_id, 80)).first();
+  if (!pl) return err("Staðurinn fannst ekki.", 404);
+  const mine = await env.DB.prepare(`SELECT 1 FROM members m JOIN pages p ON p.id=m.page_id WHERE p.place_id=? AND p.kind='venue' AND m.user_id=? AND m.role='admin'`).bind(pl.id, user.id).first();
+  if (mine) return json({ ok: true, already: true });
+  const recent = await env.DB.prepare(`SELECT COUNT(*) n FROM claims WHERE user_id=? AND created>?`).bind(user.id, now() - 86400e3).first();
+  if (recent && recent.n >= 10) return err("Of margar beiðnir í dag. Reyndu aftur á morgun.", 429);
+  const id = newId("c");
+  if (!pl.email) {
+    await env.DB.prepare(`INSERT INTO claims (id,place_id,user_id,status,created) VALUES (?,?,?,'manual',?)`).bind(id, pl.id, user.id, now()).run();
+    return json({ ok: true, manual: true });
+  }
+  const token = randomToken();
+  await env.DB.prepare(`INSERT INTO claims (id,place_id,user_id,token,email,status,created,expires) VALUES (?,?,?,?,?,'sent',?,?)`)
+    .bind(id, pl.id, user.id, await sha256(token), pl.email, now(), now() + 7 * 86400e3).run();
+  const link = `${env.BASE_URL}${env.BASE_PATH}/api/claim/verify?t=${token}`;
+  const who = user.name ? `${user.name} (${user.email})` : user.email;
+  const text = `${who} segist sjá um ${pl.name}${pl.town ? " – " + pl.town : ""} og vill setja inn viðburði staðarins á Viðburði.\n\nEf það er rétt, smelltu hér:\n${link}\n\nEf ekki, máttu hunsa þennan póst – þá gerist ekkert. Hlekkurinn virkar í 7 daga.`;
+  const html = `<div style="font:16px/1.5 system-ui,sans-serif;color:#222"><p><b>${escHtml(who)}</b> segist sjá um <b>${escHtml(pl.name)}</b>${pl.town ? " – " + escHtml(pl.town) : ""} og vill setja inn viðburði staðarins á <b>Viðburðum</b>.</p>
+<p>Ef það er rétt, smelltu á takkann:</p><p><a href="${link}" style="display:inline-block;background:#de8a5a;color:#2a1208;padding:12px 22px;border-radius:999px;font-weight:700;text-decoration:none">Já, staðfesta</a></p>
+<p style="color:#777;font-size:14px">Ef ekki, máttu hunsa þennan póst – þá gerist ekkert. Hlekkurinn virkar í 7 daga.</p></div>`;
+  if (env.DEV_LOGIN_LINK === "1") return json({ ok: true, sentTo: maskEmail(pl.email), link });
+  try { await sendMail(env, pl.email, `Staðfesting: ${pl.name} á Viðburðum`, text, html); }
+  catch (e) { console.error(e); return err("Ekki tókst að senda póstinn. Reyndu aftur síðar.", 502); }
+  return json({ ok: true, sentTo: maskEmail(pl.email) });
+}
+async function apiClaimVerify(req, env, url) {
+  const token = url.searchParams.get("t") || "";
+  const back = (msg) => new Response(null, { status: 302, headers: headersBase({ Location: `${env.BASE_PATH}/?claim=${msg}` }) });
+  if (!/^[0-9a-f]{64}$/.test(token)) return back("villa");
+  const c = await env.DB.prepare(`SELECT id,place_id,user_id,status,expires FROM claims WHERE token=?`).bind(await sha256(token)).first();
+  if (!c || c.status !== "sent" || c.expires < now()) return back("utrunnid");
+  await grantVenue(env, c.place_id, c.user_id);
+  await env.DB.prepare(`UPDATE claims SET status='approved' WHERE id=?`).bind(c.id).run();
+  return back("ok");
+}
+async function apiAdminClaims(req, env, user) {
+  if (!user.is_owner) return err("Aðeins eigandi.", 403);
+  const r = await env.DB.prepare(`SELECT c.id,c.created,p.name place,p.town,p.web,p.fb,u.name,u.email FROM claims c JOIN places p ON p.id=c.place_id JOIN users u ON u.id=c.user_id WHERE c.status='manual' ORDER BY c.created`).all();
+  return json({ items: r.results });
+}
+async function apiAdminClaimAction(req, env, user, id, action) {
+  if (!user.is_owner) return err("Aðeins eigandi.", 403);
+  const c = await env.DB.prepare(`SELECT place_id,user_id FROM claims WHERE id=? AND status='manual'`).bind(id).first();
+  if (!c) return err("Beiðnin fannst ekki.", 404);
+  if (action === "approve") await grantVenue(env, c.place_id, c.user_id);
+  await env.DB.prepare(`UPDATE claims SET status=? WHERE id=?`).bind(action === "approve" ? "approved" : "rejected", id).run();
+  return json({ ok: true });
 }
 
 /* ---------------- Athugasemdir prófara ---------------- */
@@ -834,7 +908,7 @@ async function route(req, env, url, path) {
   // Bara síðan sjálf (HTML) og gögnin (/api) eru læst; myndir, stílar og kortagögn ekki.
   const isPage = path === "/" || path === "/index.html";
   // Innskráningarhlekkurinn sannar sig sjálfur, svo hann þarf ekki lykilorðsmiðann.
-  if ((isPage || (path.startsWith("/api/") && path !== "/api/verify")) && !(await gateOk(req, env, url))) return path.startsWith("/api/") ? err("Lykilorð vantar.", 401) : gatePage(env, false);
+  if ((isPage || (path.startsWith("/api/") && path !== "/api/verify" && path !== "/api/claim/verify")) && !(await gateOk(req, env, url))) return path.startsWith("/api/") ? err("Lykilorð vantar.", 401) : gatePage(env, false);
 
   if (!path.startsWith("/api/")) {
     // Skrár síðunnar (public/event/...).
@@ -854,6 +928,7 @@ async function route(req, env, url, path) {
 
   if (path === "/api/login" && m === "POST") return apiLogin(req, env);
   if (path === "/api/verify" && m === "GET") return apiVerify(req, env, url);
+  if (path === "/api/claim/verify" && m === "GET") return apiClaimVerify(req, env, url);
   if (path === "/api/logout" && m === "POST") return apiLogout(req, env);
   if (path === "/api/places" && m === "GET") return apiPlaces(req, env);
   if (path === "/api/events" && m === "GET") return apiEvents(req, env, url);
@@ -890,6 +965,9 @@ async function route(req, env, url, path) {
   if (path === "/api/poster" && m === "POST") return apiUploadPoster(req, env, user);
   if (path === "/api/feedback" && m === "POST") return apiSendFeedback(req, env, user);
   if (path === "/api/rules-ok" && m === "POST") return apiRulesOk(req, env, user);
+  if (path === "/api/claim" && m === "POST") return apiClaim(req, env, user);
+  if (path === "/api/admin/claims" && m === "GET") return apiAdminClaims(req, env, user);
+  if ((mm = path.match(/^\/api\/admin\/claims\/([\w-]+)\/(approve|reject)$/)) && m === "POST") return apiAdminClaimAction(req, env, user, mm[1], mm[2]);
   if (path === "/api/invites" && m === "GET") return apiMyInvites(req, env, user);
   if (path === "/api/invites" && m === "POST") return apiCreateInvite(req, env, user);
   if (path === "/api/invites/request" && m === "POST") return apiRequestInvites(req, env, user);

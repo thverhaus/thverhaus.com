@@ -968,10 +968,22 @@ async function loadUsersAdmin() {
   }));
 }
 
+async function loadClaims() {
+  const box = $('claimBox');
+  if (!box) return;
+  let r;
+  try { r = await api('/admin/claims'); } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  box.innerHTML = r.items.map((c) => `<div class="card"><b>${esc(c.name || c.email)}</b> ${c.name ? `<span class="role">${esc(c.email)}</span>` : ''} vill sjá um <b>${esc(c.place)}</b>${c.town ? ' – ' + esc(c.town) : ''}
+      <div class="row" style="margin:8px 0">${c.web ? `<a class="btn sm ghost" href="${esc(c.web)}" target="_blank" rel="noopener">🌐 Heimasíða</a>` : ''}${c.fb ? `<a class="btn sm ghost" href="${esc(c.fb)}" target="_blank" rel="noopener">📘 Facebook</a>` : ''}
+      <a class="btn sm ghost" href="https://www.google.com/search?q=${encodeURIComponent(c.place + ' ' + (c.town || '') + ' netfang')}" target="_blank" rel="noopener">🔎 Leita</a></div>
+      <div class="row"><button class="btn sm primary" data-cl="${c.id}" data-a="approve">✓ Samþykkja</button><button class="btn sm ghost" data-cl="${c.id}" data-a="reject">✕ Hafna</button></div></div>`).join('') || '<p class="role">Engar beiðnir.</p>';
+  box.querySelectorAll('[data-cl]').forEach((b) => (b.onclick = async () => { try { await api(`/admin/claims/${b.dataset.cl}/${b.dataset.a}`, { method: 'POST' }); await loadMe(); loadClaims(); } catch (e) { toast(e.message, true); } }));
+}
+
 /* ---------- Mitt svæði ---------- */
 async function loadMe() {
   try { ME = await api('/me'); } catch (_e) { ME = { user: null }; }
-  const n = ME.user ? ME.pending + (ME.feedbackUnread || 0) + (ME.inviteRequests || 0) : 0;
+  const n = ME.user ? ME.pending + (ME.feedbackUnread || 0) + (ME.inviteRequests || 0) + (ME.claimRequests || 0) : 0;
   $('mineBadge').textContent = n; $('mineBadge').classList.toggle('hidden', !n);
 }
 function showPublic() { $('publicView').classList.remove('hidden'); $('mineView').classList.add('hidden'); $('dateChips').classList.remove('hidden'); if (map) { map.resize(); if (!F.inView && !F.placeId && !F.sel) fitIceland(); } }
@@ -1041,6 +1053,12 @@ async function renderMine() {
 
    ${u.owner ? `<div class="sec" id="fbOwner"><h2>💬 Athugasemdir frá prófurum</h2><div id="fbList"><p class="role">Hleð…</p></div></div>` : ''}
 
+   <div class="sec" id="claimSec"><h2>🏠 Staðurinn minn</h2>
+     <form id="claimForm" class="card"><p>Sérðu um bar, veitingahús, félagsheimili eða annan stað? Finndu hann hér. Við sendum staðfestingu á <b>netfangið sem staðurinn birtir</b> – sá sem opnar þann póst fær að stjórna staðnum.</p>
+       ${placeFieldHtml('cl', null)}<div class="row" style="margin-top:10px"><button class="btn primary">🏠 Þetta er minn staður</button></div><div id="claimMsg"></div></form></div>
+
+   ${u.owner ? `<div class="sec" id="claimAdmin"><h2>🏠 Beiðnir um staði (ekkert netfang fannst)</h2><div id="claimBox"><p class="role">Hleð…</p></div></div>` : ''}
+
    ${u.owner ? `<div class="sec"><h2>👥 Notendur og boðslyklar</h2><div id="usersBox"><p class="role">Hleð…</p></div></div>` : ''}
 
    <div class="sec" id="invSec"><h2>🎁 Bjóða einhverjum</h2><div id="invBox"><p class="role">Hleð…</p></div>
@@ -1081,7 +1099,19 @@ async function renderMine() {
     try { await api('/feedback', { method: 'POST', body: { text: f.elements.text.value, anon: f.anon.checked } }); f.reset(); toast('✅ Takk! Athugasemdin er komin til skila.'); if (u.owner) loadFeedback(); }
     catch (e) { toast(e.message, true); }
   };
-  if (u.owner) { loadFeedback(); loadUsersAdmin(); }
+  if (u.owner) { loadFeedback(); loadUsersAdmin(); loadClaims(); }
+  const cf = $('claimForm'), cpf = wirePlaceField(cf, 'cl');
+  cf.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const id = cpf.value();
+    if (!id) { toast('Veldu staðinn fyrst', true); return; }
+    try {
+      const r = await api('/claim', { method: 'POST', body: { place_id: id } });
+      $('claimMsg').innerHTML = r.already ? '<div class="note">✅ Þú sérð þegar um þennan stað.</div>'
+        : r.manual ? '<div class="note">Við fundum ekkert netfang fyrir þennan stað. Beiðnin er komin til umsjónarmanns síðunnar, sem staðfestir hana.</div>'
+        : `<div class="note">📧 Við sendum staðfestingu á <b>${esc(r.sentTo)}</b> – netfangið sem staðurinn birtir. Opnaðu þann póst og smelltu á hlekkinn.</div>`;
+    } catch (e) { $('claimMsg').innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  };
   loadInvites();
   if (store.get('goFeedback')) { store.set('goFeedback', null); setTimeout(() => { $('fbSec').scrollIntoView({ behavior: 'smooth' }); $('fbForm').elements.text.focus(); }, 50); }
   $('logoutBtn').onclick = async () => { await api('/logout', { method: 'POST' }); store.set('sid', null); ME = null; await renderMine(); };
@@ -1621,6 +1651,12 @@ function applyLang() {
       if (r.ok) { store.set('inv', inv); store.set('invFrom', r.from || ''); if (!ME.user) showMine(); else toast('Þú ert þegar með aðgang 🙂'); }
       else toast(r.error, true);
     } catch (e) { toast(e.message, true); }
+  }
+  const cl = sp.get('claim');
+  if (cl) {
+    history.replaceState(null, '', BASE + '/');
+    if (cl === 'ok') { toast('✅ Staðfest! Þú sérð nú um staðinn.'); if (ME.user) showMine(); }
+    else toast(cl === 'utrunnid' ? 'Staðfestingarhlekkurinn er útrunninn eða búið að nota hann.' : 'Staðfesting tókst ekki.', true);
   }
   const lg = sp.get('login');
   if (lg) {
