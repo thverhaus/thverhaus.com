@@ -332,7 +332,7 @@ function dayLabel(d) {
    og lítil í viðburðarglugganum. Alltaf merkt, engir sprettigluggar, engar áfengisauglýsingar (0% bjór í lagi). */
 const ADS = [
   { e: '🥫', t: 'Heiðars Remúlaði', d: 'Á pylsuna. Á franskarnar. Á allt.', bg: '#7a5a12', fg: '#fff4d6' },
-  { e: '🍺', t: 'Núlli Fús', d: '0% bjór. 100% Fús.', bg: '#1f3b4d', fg: '#e3f2ff' },
+  { e: '🫧', t: 'Sódó', d: 'Loksins áfengislaust sódavatn.', bg: '#1f3b4d', fg: '#e3f2ff' },
   { e: '🥨', t: 'Kleinubakarí Kalla', d: 'Kleinur svo góðar að amma þín verður afbrýðisöm.', bg: '#6b2318', fg: '#ffe6dc' },
   { e: '🚗', t: 'Bílaþvottur Bjössa', d: 'Við þvoum bílinn. Og hundinn ef þú biður fallega.', bg: '#1d4a3a', fg: '#dcf5ea' },
   { e: '🧶', t: 'Prjónastofan Lopi', d: 'Lopapeysur á alla hljómsveitina. Afsláttur fyrir trommara.', bg: '#4a2d5c', fg: '#f1e3fa' },
