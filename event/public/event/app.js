@@ -1209,11 +1209,11 @@ async function renderOwner() {
       for (;;) {
         const x = await api('/admin/contacts', { method: 'POST' });
         ctShow(x);
-        if (x.errors && x.errors.length) { toast(x.errors[0], true); break; }
+        if (x.errors && x.errors.length) { $('ctStats').insertAdjacentHTML('beforeend', `<p class="err">⚠️ ${esc(x.errors[0])}</p>`); break; }
         if (x.done) { toast('✅ Búið'); break; }
       }
-    } catch (e) { toast(e.message, true); }
-    b.disabled = false; b.textContent = '🔎 Finna heimasíður og netföng';
+    } catch (e) { $('ctStats').insertAdjacentHTML('beforeend', `<p class="err">⚠️ ${esc(e.message)}</p>`); }
+    b.disabled = false; b.textContent = '🔎 Halda áfram';
   };
   $('demoAdd').onclick = () => demo('POST');
   $('demoDel').onclick = () => demo('DELETE');

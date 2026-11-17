@@ -100,7 +100,8 @@ export async function contactsStep(env) {
   for (const p of batch) {
     let web = p.web, webSrc = "", email = p.email, emailSrc = "";
     if (!web && env.GOOGLE_PLACES_KEY && used < GOOGLE_MONTH_CAP) {
-      try { used++; web = await googleWebsite(env, p); if (web) webSrc = "google"; } catch (e) { log.push(String(e.message || e)); used--; }
+      try { used++; web = await googleWebsite(env, p); if (web) webSrc = "google"; }
+      catch (e) { log.push(`${p.name}: ${String(e.message || e)}`); used--; continue; } // ekki merkja yfirfarinn – reynt aftur
     }
     if (!email && web) { email = await emailFromSite(web); if (email) emailSrc = "web"; }
     await env.DB.prepare(`UPDATE places SET contact_checked=?, web=CASE WHEN web='' THEN ? ELSE web END, web_src=CASE WHEN web_src='' THEN ? ELSE web_src END,
