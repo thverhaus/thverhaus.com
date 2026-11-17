@@ -18,8 +18,8 @@
   },
   // Búið til sjálfkrafa við fyrstu uppsetningu (wrangler auto-provisioning).
   "d1_databases": [{ "binding": "DB", "database_name": "vidburdir-db" }],
-  // Plaköt (R2): bætt við þegar R2 hefur verið virkjað á Cloudflare-aðganginum:
-  // "r2_buckets": [{ "binding": "POSTERS" }],
+  // Plaköt (R2)
+  "r2_buckets": [{ "binding": "POSTERS", "bucket_name": "vidburdir-plakot" }],
   "vars": {
     "BASE_PATH": "/event",
     "BASE_URL": "https://thverhaus.com",
