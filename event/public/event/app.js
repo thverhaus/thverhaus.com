@@ -1106,6 +1106,18 @@ async function renderMine() {
     const id = cpf.value();
     if (!id) { toast('Veldu staðinn fyrst', true); return; }
     try {
+      const pv = await api('/claim', { method: 'POST', body: { place_id: id, preview: true } });
+      if (pv.already) { $('claimMsg').innerHTML = '<div class="note">✅ Þú sérð þegar um þennan stað.</div>'; return; }
+      const nm = esc(pv.place) + (pv.town ? ' – ' + esc(pv.town) : '');
+      const ok = await new Promise((res) => {
+        const m = openModal(`<h2>🏠 ${nm}</h2>
+          ${pv.to ? `<p>📧 Staðfestingarpóstur verður sendur á <b>${esc(pv.to)}</b> – netfangið sem staðurinn birtir.</p><p>Sá sem opnar þann póst og smellir á hlekkinn fær að stjórna staðnum.</p>`
+            : `<p>Við fundum ekkert netfang fyrir staðinn. Beiðnin fer til umsjónarmanns síðunnar, sem staðfestir hana.</p>`}
+          <p><b>Ertu viss?</b></p><div class="row"><button class="btn primary" data-y>${pv.to ? '📧 Já, senda' : 'Já, halda áfram'}</button><button class="btn ghost" data-n>Hætta við</button></div>`, { onClose: () => res(false) });
+        m.el.querySelector('[data-y]').onclick = () => { res(true); m.close(); };
+        m.el.querySelector('[data-n]').onclick = () => m.close();
+      });
+      if (!ok) return;
       const r = await api('/claim', { method: 'POST', body: { place_id: id } });
       $('claimMsg').innerHTML = r.already ? '<div class="note">✅ Þú sérð þegar um þennan stað.</div>'
         : r.manual ? '<div class="note">Við fundum ekkert netfang fyrir þennan stað. Beiðnin er komin til umsjónarmanns síðunnar, sem staðfestir hana.</div>'

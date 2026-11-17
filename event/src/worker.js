@@ -454,6 +454,8 @@ async function apiClaim(req, env, user) {
   if (!pl) return err("Staðurinn fannst ekki.", 404);
   const mine = await env.DB.prepare(`SELECT 1 FROM members m JOIN pages p ON p.id=m.page_id WHERE p.place_id=? AND p.kind='venue' AND m.user_id=? AND m.role='admin'`).bind(pl.id, user.id).first();
   if (mine) return json({ ok: true, already: true });
+  // Forskoðun: segja hvert pósturinn fer áður en hann er sendur (notandinn staðfestir).
+  if (b.preview) return json({ ok: true, preview: true, place: pl.name, town: pl.town || "", to: pl.email ? maskEmail(pl.email) : null });
   const recent = await env.DB.prepare(`SELECT COUNT(*) n FROM claims WHERE user_id=? AND created>?`).bind(user.id, now() - 86400e3).first();
   if (recent && recent.n >= 10) return err("Of margar beiðnir í dag. Reyndu aftur á morgun.", 429);
   const id = newId("c");
