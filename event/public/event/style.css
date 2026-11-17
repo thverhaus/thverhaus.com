@@ -112,7 +112,7 @@ details.paste textarea{margin:10px 0}
 .maplibregl-popup-content{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:12px;font-family:inherit}
 .maplibregl-popup-tip{border-top-color:var(--panel)!important;border-bottom-color:var(--panel)!important}
 .maplibregl-ctrl-attrib{font-size:11px}
-@media (max-width:1250px){.leftcol{display:contents}.adside{display:none!important}}
+@media (max-width:1250px){.leftcol{display:contents}.hlidbox{display:none!important}}
 @media (min-width:900px) and (max-width:1250px){
   main{grid-template-columns:minmax(0,1fr) minmax(330px,390px)}
   .fbtn{display:inline-block}
@@ -218,16 +218,16 @@ details.paste textarea{margin:10px 0}
 .dh.today{color:var(--accent)}
 .dh small{font-family:'Atkinson Hyperlegible',system-ui,sans-serif;font-weight:400;font-size:15px;color:var(--muted);margin-left:6px}
 /* Auglýsingar (eins og í prufusíðunni) */
-.ad{position:relative;border-radius:14px;padding:22px 16px 14px;display:flex;gap:14px;align-items:center;border:1px solid #ffffff14}
-.ad .adl{position:absolute;top:6px;right:12px;font-size:11px;letter-spacing:.8px;text-transform:uppercase;opacity:.75}
-.ad .art{font-size:36px;line-height:1;flex:none;width:54px;height:54px;display:grid;place-items:center;border-radius:14px;background:#ffffff18}
-.ad .h{font-family:var(--serif);font-weight:800;font-size:20px;line-height:1.1}
-.ad .s{font-size:15px;opacity:.9;margin-top:2px}
-.ad.small{margin-top:18px;padding:22px 14px 12px}.ad.small .art{width:44px;height:44px;font-size:28px}.ad.small .h{font-size:17px}
-.adside{margin-top:18px}
-.ad.box{width:300px;height:250px;box-sizing:border-box;flex-direction:column;justify-content:center;text-align:center;gap:10px;padding:26px 18px 18px}
-.ad.box .art{width:84px;height:84px;font-size:56px;border-radius:20px}
-.ad.box .h{font-size:28px}.ad.box .s{font-size:17px}
+.kyn{position:relative;border-radius:14px;padding:22px 16px 14px;display:flex;gap:14px;align-items:center;border:1px solid #ffffff14}
+.kyn .kynl{position:absolute;top:6px;right:12px;font-size:11px;letter-spacing:.8px;text-transform:uppercase;opacity:.75}
+.kyn .art{font-size:36px;line-height:1;flex:none;width:54px;height:54px;display:grid;place-items:center;border-radius:14px;background:#ffffff18}
+.kyn .h{font-family:var(--serif);font-weight:800;font-size:20px;line-height:1.1}
+.kyn .s{font-size:15px;opacity:.9;margin-top:2px}
+.kyn.small{margin-top:18px;padding:22px 14px 12px}.kyn.small .art{width:44px;height:44px;font-size:28px}.kyn.small .h{font-size:17px}
+.hlidbox{margin-top:18px}
+.kyn.box{width:300px;height:250px;box-sizing:border-box;flex-direction:column;justify-content:center;text-align:center;gap:10px;padding:26px 18px 18px}
+.kyn.box .art{width:84px;height:84px;font-size:56px;border-radius:20px}
+.kyn.box .h{font-size:28px}.kyn.box .s{font-size:17px}
 /* Tölva: síðan sjálf skrollast ekki – bara listinn. Sían, auglýsingin og kortið standa kyrr. */
 @media (min-width:900px){
   main{height:calc(100vh - var(--hh,120px));box-sizing:border-box;grid-template-rows:minmax(0,1fr);overflow:hidden}

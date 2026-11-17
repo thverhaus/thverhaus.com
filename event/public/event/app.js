@@ -330,9 +330,9 @@ const ADS = [
 let adStart = Math.floor(Math.random() * ADS.length);
 function adHtml(i, kind) {
   const a = ADS[(adStart + i) % ADS.length];
-  return `<div class="ad ${kind || ''}" style="background:${a.bg};color:${a.fg}"><span class="adl">${L('Auglýsing', 'Ad')}</span><div class="art">${a.e}</div><div><div class="h">${esc(a.t)}</div><div class="s">${esc(a.d)}</div></div></div>`;
+  return `<div class="kyn ${kind || ''}" style="background:${a.bg};color:${a.fg}"><span class="kynl">${L('Auglýsing', 'Ad')}</span><div class="art">${a.e}</div><div><div class="h">${esc(a.t)}</div><div class="s">${esc(a.d)}</div></div></div>`;
 }
-function renderSideAd() { const el = $('adSide'); if (el) el.innerHTML = adHtml(ADS.length - 1, 'box'); }
+function renderSideAd() { const el = $('hlidBox'); if (el) el.innerHTML = adHtml(ADS.length - 1, 'box'); }
 function renderList() {
   let list = visibleEvents();
   // Viðburðir sem eru „hluti af hátíð“ birtast ekki stakir: þeir fara inn í dagslínu hátíðarinnar
