@@ -49,6 +49,8 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
+          # Java-slóðin á Mac Júlla gildir ekki hér; notum Java úr setup-java.
+          sed -i '/^org.gradle.java.home/d' gradle.properties
           set -o pipefail
           ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee ../out/build.log
 
