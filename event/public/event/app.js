@@ -43,7 +43,7 @@ const L = (is, en) => (lang === 'en' && en !== undefined ? en : is);
 
 // Flokkar: aðalflokkar, og undirflokkar fyrir Tónlist og Leikhús.
 const SUBS = { tonlist: ['tonleikar', 'ball', 'dj', 'trubador', 'tonlist_annad'], leikhus: ['leiksyning', 'songleikur', 'barnaleikrit', 'dans', 'leikhus_annad'], hatid: ['tonleikahatid', 'baejarhatid'] };
-const TOPS = ['tonlist', 'leikhus', 'uppistand', 'pubquiz', 'list', 'hatid', 'annad'];
+const TOPS = ['hatid', 'tonlist', 'leikhus', 'uppistand', 'pubquiz', 'list', 'annad']; // Hátíð efst (Júlíus 17. nóv)
 const PARENT = {}; Object.entries(SUBS).forEach(([t, xs]) => xs.forEach((x) => (PARENT[x] = t)));
 const TAGS = TOPS;
 const TAGL = {
