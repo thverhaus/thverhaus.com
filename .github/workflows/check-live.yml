@@ -1,0 +1,24 @@
+# Fljótleg athugun: hvað þjónar thverhaus.com núna? Keyrist við push á "check".
+name: Check live site
+on:
+  push:
+    branches: [check]
+permissions:
+  contents: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sækja
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir out && cd out
+          curl -fsSL https://thverhaus.com/updates.json -o updates.json || echo fail > updates.json
+          curl -fsSIL https://thverhaus.com/mulehead.apk > apk-headers.txt || true
+          curl -fsSL https://thverhaus.com/mulehead.apk | sha256sum > apk.sha256 || true
+          date -u +%FT%TZ > STATUS; echo "${GITHUB_SHA}" >> STATUS
+          git init -q && git checkout -q -b check-result
+          git -c user.name=checker -c user.email=actions@users.noreply.github.com commit -qm check --allow-empty
+          git add -A && git -c user.name=checker -c user.email=actions@users.noreply.github.com commit -qm check
+          git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" check-result
