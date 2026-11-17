@@ -759,6 +759,22 @@ function cleanEvent(b) {
   };
 }
 
+// Hátíð „um allan bæinn“: staðurinn er bærinn sjálfur (id "town:Höfn"), búinn til þegar fyrst þarf, á miðjum bænum.
+async function resolvePlace(env, placeId, req) {
+  placeId = str(placeId, 80);
+  const ex = await env.DB.prepare(`SELECT id FROM places WHERE id=?`).bind(placeId).first();
+  if (ex || !placeId.startsWith("town:")) return ex;
+  const name = placeId.slice(5);
+  const r = await env.ASSETS.fetch(new Request(new URL(`${env.BASE_PATH}/data/places.json`, req.url)));
+  if (!r.ok) return null;
+  const g = await r.json();
+  const t = (g.towns || []).find((x) => x.n === name);
+  if (!t) return null;
+  const mu = (g.munis || {})[t.m] || {};
+  await env.DB.prepare(`INSERT OR IGNORE INTO places (id,name,cat,town,muni,region,lat,lon,created) VALUES (?,?,?,?,?,?,?,?,?)`)
+    .bind(placeId, name, "town", name, t.m, mu.r || "", t.ll[1], t.ll[0], now()).run();
+  return { id: placeId };
+}
 // „Hluti af hátíð“: bara hátíð sem er til og stendur yfir á þeim degi.
 async function validFestival(env, c, user) {
   const no = () => { c.headline = 0; return ""; };
@@ -783,9 +799,9 @@ async function apiCreateEvent(req, env, user) {
   if (!(await roleIn(env, user, pageId))) return err("Þú ert ekki í þessari síðu.", 403);
   const page = await env.DB.prepare(`SELECT id,status FROM pages WHERE id=?`).bind(pageId).first();
   if (!page || page.status !== "approved") return err("Síðan hefur ekki verið samþykkt.", 403);
-  const placeId = str(b.place_id, 60);
-  const place = await env.DB.prepare(`SELECT id FROM places WHERE id=?`).bind(placeId).first();
+  const place = await resolvePlace(env, b.place_id, req);
   if (!place) return err("Veldu stað.");
+  const placeId = place.id;
   const c = cleanEvent(b);
   if (c.error) return err(c.error);
   c.festival_id = await validFestival(env, c, user);
@@ -833,7 +849,7 @@ async function apiUpdateEvent(req, env, user, id) {
   c.festival_id = await validFestival(env, c, user);
   let placeId = ev.place_id, status = ev.status;
   if (b.place_id && b.place_id !== ev.place_id) {
-    const place = await env.DB.prepare(`SELECT id FROM places WHERE id=?`).bind(str(b.place_id, 60)).first();
+    const place = await resolvePlace(env, b.place_id, req);
     if (!place) return err("Veldu stað.");
     placeId = place.id;
     const vp = await venuePageOf(env, placeId);

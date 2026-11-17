@@ -51,7 +51,7 @@ export async function createDemo(env, todayISO) {
   const now = Date.now();
   const stmts = [];
 
-  const all = (await env.DB.prepare(`SELECT id,name,cat,town FROM places`).all()).results;
+  const all = (await env.DB.prepare(`SELECT id,name,cat,town,lat,lon,muni,region FROM places WHERE COALESCE(cat,'')<>'town'`).all()).results;
   const chosen = new Map();
   for (const p of all) {
     if (!p.cat) chosen.set(p.id, { ...p, cat: "bar" }); // staðir skráðir handvirkt (t.d. Hafið)
@@ -130,7 +130,11 @@ export async function createDemo(env, todayISO) {
   for (const p of places) if (p.town) (byTown[p.town] = byTown[p.town] || []).push(p);
   const towns = Object.entries(byTown).filter(([, ps]) => ps.length >= 3).map(([t]) => t);
   const fest = (id, town, title, from, to, sub, url, descr) => {
-    const pl = byTown[town][0];
+    // Bæjarhátíð er í öllum bænum: staðurinn er bærinn sjálfur (á miðjum bænum).
+    const ps = byTown[town], tid = "town:" + town;
+    const lat = ps.reduce((a, p) => a + p.lat, 0) / ps.length, lon = ps.reduce((a, p) => a + p.lon, 0) / ps.length;
+    stmts.push(env.DB.prepare(`INSERT OR IGNORE INTO places (id,name,cat,town,muni,region,lat,lon,created) VALUES (?,?,?,?,?,?,?,?,?)`).bind(tid, town, "town", town, ps[0].muni, ps[0].region, lat, lon, now));
+    const pl = sub === "baejarhatid" ? { id: tid } : byTown[town][0];
     stmts.push(env.DB.prepare(INS).bind(id, pl.id, pick(groups).id, title, addDays(from), addDays(to), url, "", "14:00", "", 0, "", 0, "", "",
       JSON.stringify(["hatid", sub]), "[]", "", 1, descr, "", "approved", 0, "", 0, "", now, now, 0));
     return byTown[town];

@@ -1348,7 +1348,7 @@ function wirePlaceField(root, key, onPick) {
   const recent = store.get('recentPlaces', []);
   const show = () => {
     const q = norm(inp.value);
-    let items = PLACES.filter((p) => !q || norm(placeLabel(p) + ' ' + muniName(p.muni)).includes(q));
+    let items = PLACES.filter((p) => p.cat !== 'town' && (!q || norm(placeLabel(p) + ' ' + muniName(p.muni)).includes(q)));
     items.sort((a, b) => { const ra = recent.indexOf(a.id), rb = recent.indexOf(b.id); return (ra < 0 ? 999 : ra) - (rb < 0 ? 999 : rb) || a.name.localeCompare(b.name, 'is'); });
     items = items.slice(0, 10);
     list.innerHTML = items.map((p) => `<button type="button" data-pid="${p.id}">${esc(placeLabel(p))}${recent.includes(p.id) ? ' <small>nýlega notað</small>' : ''}</button>`).join('') ||
@@ -1460,6 +1460,11 @@ function openEventForm(ev, isCopy) {
      <div id="genreBox" class="${tags.has('tonlist') ? '' : 'hidden'}" style="margin-top:10px"><span class="role">🎸 Tónlistarstefna (má sleppa, max 4):</span>
        <div class="tagpick" style="margin-top:6px">${GENRES.map((g) => `<span class="chip ${(ev.genres || []).includes(g) ? 'on' : ''}" data-genre="${g}">${GENL.is[g]}</span>`).join('')}</div></div>
      <div id="festFields" class="${tags.has('hatid') ? '' : 'hidden'}" style="margin-top:10px">
+       <label>📍 Hvar er hátíðin?</label>
+       <div class="row" style="margin-bottom:8px"><label class="cbx"><input type="radio" name="fwhere" value="place" ${String(ev.place_id || '').startsWith('town:') ? '' : 'checked'}><span>Á einum stað (valinn efst)</span></label>
+         <label class="cbx"><input type="radio" name="fwhere" value="town" ${String(ev.place_id || '').startsWith('town:') ? 'checked' : ''}><span>🏘️ Um allan bæinn</span></label></div>
+       <div id="ftownBox" class="${String(ev.place_id || '').startsWith('town:') ? '' : 'hidden'}" style="margin-bottom:8px"><input class="inp" name="ftown" list="ftownList" placeholder="Bær, t.d. Höfn" value="${esc(String(ev.place_id || '').startsWith('town:') ? ev.place_id.slice(5) : '')}">
+         <datalist id="ftownList">${(GEO ? GEO.towns : []).map((t) => `<option value="${esc(t.n)}">`).join('')}</datalist></div>
        <label>📅 Síðasti dagur hátíðarinnar</label><input type="hidden" name="end_date" value="${esc(ev.end_date || '')}"><button type="button" class="btn" id="endDateBtn">${ev.end_date ? esc(fmtLong(ev.end_date)) : 'Veldu síðasta dag'}</button>
        <label style="margin-top:8px">🌐 Heimasíða eða Facebook-síða hátíðarinnar (þar er dagskráin)</label><input type="url" name="url" placeholder="https://" value="${esc(ev.url || '')}"></div>
      <div id="festPick" style="margin-top:10px"></div>
@@ -1497,6 +1502,7 @@ function openEventForm(ev, isCopy) {
   let pastOk = false;
   const setDate = (s) => { f.date.value = s; $('dateBtn').textContent = fmtLong(s); pastOk = false; $('pastWarn').classList.add('hidden'); checkChange(); refreshFest(); };
   refreshFest();
+  f.querySelectorAll('[name=fwhere]').forEach((r) => (r.onchange = () => $('ftownBox').classList.toggle('hidden', f.fwhere.value !== 'town')));
   $('endDateBtn').onclick = () => openCal(f.end_date.value || f.date.value || iso(TODAY), { title: 'Síðasti dagur hátíðarinnar', min: f.date.value || iso(TODAY), onPick: (s) => { f.end_date.value = s; $('endDateBtn').textContent = fmtLong(s); } });
   $('dateBtn').onclick = () => openCal(f.date.value || iso(TODAY), { title: 'Dagsetning', min: iso(TODAY), allowPast: true, onPick: setDate });
   const checkChange = () => { const hb = $('hlBox'); if (hb) hb.classList.toggle('hidden', !(ev.status === 'approved' && (f.date.value !== ev.date || f.time.value !== ev.time))); };
@@ -1545,7 +1551,7 @@ function openEventForm(ev, isCopy) {
     const tagsSel = [...f.querySelectorAll('[data-tag].on')].map((c) => c.dataset.tag);
     tagsSel.push(...[...f.querySelectorAll('[data-sub].on')].filter((c) => tagsSel.includes(PARENT[c.dataset.sub])).map((c) => c.dataset.sub));
     const body = {
-      page_id: f.page_id.value, place_id: pf.value(), title: f.elements.title.value, date: f.date.value, time: f.time.value, end_time: f.end_time.value,
+      page_id: f.page_id.value, place_id: f.querySelector('[data-tag="hatid"].on') && f.fwhere.value === 'town' ? (f.ftown.value.trim() ? 'town:' + f.ftown.value.trim() : '') : pf.value(), title: f.elements.title.value, date: f.date.value, time: f.time.value, end_time: f.end_time.value,
       price: f.price.value === '' ? null : Number(f.price.value), door: f.door.checked, ticket: f.ticket.value, age: f.age.value, age_text: f.age_text.value,
       end_date: f.end_date.value, url: f.url.value, festival_id: ((f.querySelector('[data-fid]:checked') || {}).dataset || {}).fid || '',
       headline: !!f.querySelector('[data-head]:checked'),
@@ -1553,7 +1559,8 @@ function openEventForm(ev, isCopy) {
       repeat_weeks: f.repeat_weeks ? Number(f.repeat_weeks.value) : 1, highlight_change: f.highlight_change ? f.highlight_change.checked : false,
     };
     const fail = (msg) => { errBox.innerHTML = `<p class="err">${esc(msg)}</p>`; };
-    if (!body.place_id) return fail('Veldu stað úr listanum.');
+    if (!body.place_id) return fail(f.querySelector('[data-tag="hatid"].on') && f.fwhere.value === 'town' ? 'Skrifaðu bæinn.' : 'Veldu stað úr listanum.');
+    if (body.place_id.startsWith('town:') && !(GEO && GEO.towns.some((t) => t.n === body.place_id.slice(5)))) return fail('Veldu bæ úr listanum, t.d. Höfn.');
     if (!body.date) return fail('Veldu dagsetningu.');
     if (!body.time) return fail('Veldu tíma (eða skrifaðu hann rétt undir „Annað“).');
     if (!tagsSel.length) return fail('Veldu hvernig viðburður þetta er.');
@@ -1563,6 +1570,7 @@ function openEventForm(ev, isCopy) {
       const r = editing ? await api('/events/' + ev.id, { method: 'PUT', body }) : await api('/events', { method: 'POST', body });
       m.close();
       toast(r.status === 'pending' ? `⏳ Sent til ${r.venue || 'staðarins'} til samþykkis` : editing ? '✅ Vistað' : '✅ Viðburðurinn er kominn inn');
+      if (body.place_id.startsWith('town:') && !PLACE[body.place_id]) setPlaces((await api('/places')).places);
       await loadEvents(); renderAll(); if (!$('mineView').classList.contains('hidden')) renderMine();
     } catch (er) { fail(er.message); btn.disabled = false; }
   };
