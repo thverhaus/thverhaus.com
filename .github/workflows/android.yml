@@ -16,13 +16,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        id: co
 
       - uses: actions/setup-java@v4
+        id: java
         with:
           distribution: temurin
           java-version: '21'
 
-      - uses: android-actions/setup-android@v3
+      # Android SDK fylgir ubuntu-latest ($ANDROID_HOME); leyfi samþykkt hér.
+      - name: Android SDK
+        id: sdk
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
       - name: Undirritunarlykill
         id: key
@@ -64,7 +71,7 @@ jobs:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p out
-          echo "build=${{ steps.build.outcome }} key=${{ steps.key.outcome }} sha=${GITHUB_SHA} at=$(date -u +%FT%TZ)" > out/STATUS
+          echo "co=${{ steps.co.outcome }} java=${{ steps.java.outcome }} sdk=${{ steps.sdk.outcome }} build=${{ steps.build.outcome }} key=${{ steps.key.outcome }} sha=${GITHUB_SHA} at=$(date -u +%FT%TZ)" > out/STATUS
           cd out
           git init -q
           git checkout -q -b android-builds
