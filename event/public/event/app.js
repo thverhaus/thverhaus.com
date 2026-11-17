@@ -9,7 +9,24 @@ const pad = (n) => String(n).padStart(2, '0');
 const iso = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 const parseISO = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
-const TODAY = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; })();
+let TODAY = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; })();
+/* ---------- Tími viðburða: byrjaður / búinn ----------
+   Viðburður sést þar til hann klárast: lokatími ef skráður (yfir miðnætti ef hann er fyrir byrjun),
+   annars 3 klst. eftir byrjun; kvöldviðburðir (frá kl. 18) a.m.k. til kl. 03 um nóttina. */
+const hm = (t) => { const m = /^(\d{1,2})[:.](\d{2})/.exec(t || ''); return m ? [+m[1], +m[2]] : null; };
+function evStart(e) { const d = new Date(e.date + 'T00:00:00'); const t = hm(e.time); if (t) d.setHours(t[0], t[1], 0, 0); return d; }
+function evEnd(e) {
+  const s = evStart(e), t = hm(e.time), et = hm(e.end_time);
+  if (et) { const d = new Date(e.date + 'T00:00:00'); d.setHours(et[0], et[1], 0, 0); if (d <= s) d.setDate(d.getDate() + 1); return d; }
+  if (!t) { const d = new Date(e.date + 'T00:00:00'); d.setDate(d.getDate() + 1); return d; } // enginn tími: allur dagurinn
+  let end = new Date(s.getTime() + 3 * 3600e3);
+  if (t[0] >= 18) { const n3 = new Date(e.date + 'T00:00:00'); n3.setDate(n3.getDate() + 1); n3.setHours(3, 0, 0, 0); if (n3 > end) end = n3; }
+  return end;
+}
+const isLive = (e) => { const n = Date.now(); return !e.cancelled && evStart(e).getTime() <= n && n < evEnd(e).getTime(); };
+const isOver = (e) => Date.now() >= evEnd(e).getTime();
+// Dagurinn sem viðburður birtist undir: ball frá því í gær sem er enn í gangi birtist undir „Í dag“.
+const dayKey = (e) => (e.date < iso(TODAY) ? iso(TODAY) : e.date);
 const store = { get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (_e) { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_e) {} } };
 
 let lang = store.get('lang', 'is');
@@ -193,7 +210,8 @@ function bubblePlaces(kind, key) {
   return new Set(PLACES.filter((p) => P2T[p.id] === name).map((p) => p.id));
 }
 async function loadEvents() {
-  const r = await api('/events?from=' + iso(TODAY) + '&to=' + iso(addDays(TODAY, 365)));
+  // Frá því í gær, svo viðburðir sem standa yfir miðnætti haldist inni.
+  const r = await api('/events?from=' + iso(addDays(TODAY, -1)) + '&to=' + iso(addDays(TODAY, 365)));
   EVENTS = r.events;
 }
 
@@ -236,7 +254,7 @@ function norm(s) { return String(s || '').toLowerCase().normalize('NFD').replace
 // allRegions: kortið sýnir alltaf allt landið; valinn landshluti síar bara listann.
 function eventsInDates(allRegions) {
   const [a, b] = dateRange();
-  return EVENTS.filter((e) => e.date >= a && e.date <= b && typeMatch(e) && (allRegions || regionMatch(e)));
+  return EVENTS.filter((e) => { const k = dayKey(e); return k >= a && k <= b && !isOver(e) && typeMatch(e) && (allRegions || regionMatch(e)); });
 }
 function textMatch(e, q) {
   const p = PLACE[e.place_id] || {};
@@ -266,10 +284,11 @@ function evRow(e) {
   const meta = ['📍 ' + placeLabel(p), priceStr(e) && '💰 ' + priceStr(e), e.door && '🚪 ' + L('við hurð', 'at the door'), ageStr(e) && '🔞 ' + ageStr(e)].filter(Boolean);
   // Dagurinn stendur í fyrirsögn yfir hópnum; hér bara tíminn. Staður, verð og aldur í einni línu
   // (hver hluti brotnar ekki í sundur). Merkin sjást þegar viðburður er opnaður.
-  return `<button class="ev2 ${e.cancelled ? 'cx' : ''}" data-ev="${e.id}">
+  const live = isLive(e);
+  return `<button class="ev2 ${e.cancelled ? 'cx' : ''} ${live ? 'live' : ''}" data-ev="${e.id}">
     <span class="when"><span class="tm">${esc(e.time)}</span></span>
     <span class="body">
-      <span class="ti">${e.cancelled ? `<span class="cxl">${L('AFLÝST', 'CANCELLED')}</span> ` : ''}${esc(e.title)}</span>
+      <span class="ti">${e.cancelled ? `<span class="cxl">${L('AFLÝST', 'CANCELLED')}</span> ` : ''}${live ? `<span class="livel">● ${L('Í gangi', 'On now')}</span> ` : ''}${esc(e.title)}</span>
       <span class="ln">${meta.map((x) => `<span class="nw">${esc(x)}</span>`).join(' · ')}</span>
       ${e.time_changed ? `<span class="ln chg">🕘 ${L('Breyttur tími', 'Time changed')}</span>` : ''}
     </span>
@@ -303,9 +322,9 @@ function renderList() {
   // Hópað eftir dögum; fyrirsögn dagsins festist efst þar til næsti dagur ýtir henni upp.
   let html = '', day = null, ai = 0;
   list.forEach((e, i) => {
-    if (e.date !== day) {
+    if (dayKey(e) !== day) {
       if (day !== null) html += '</section>';
-      day = e.date;
+      day = dayKey(e);
       const [a, b] = dayLabel(day);
       html += `<section class="day"><h3 class="dh ${day === iso(TODAY) ? 'today' : ''}">${esc(a)}${b ? ` <small>${esc(b)}</small>` : ''}</h3>`;
     }
@@ -890,6 +909,17 @@ $('mineBtn').onclick = showMine;
 function setHH() { document.documentElement.style.setProperty('--hh', document.querySelector('header').offsetHeight + 'px'); }
 setHH(); addEventListener('resize', setHH);
 if (window.ResizeObserver) new ResizeObserver(setHH).observe(document.querySelector('header'));
+// Síðan uppfærir sig sjálf: á 5 mínútna fresti (byrjaðir/búnir viðburðir) og yfir miðnætti (nýr dagur).
+let liveSig = '';
+const sigNow = () => EVENTS.filter((e) => isLive(e) || isOver(e)).map((e) => e.id + (isLive(e) ? 'L' : 'O')).join();
+function tick() {
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  if (t.getTime() !== TODAY.getTime()) { TODAY = t; liveSig = ''; loadEvents().then(renderAll).catch(() => {}); return; }
+  const sig = sigNow();
+  if (sig !== liveSig) { liveSig = sig; renderAll(); }
+}
+setInterval(tick, 5 * 60e3);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
 $('fbLink').onclick = () => { store.set('goFeedback', 1); showMine(); };
 $('logo').onclick = () => { showPublic(); if (isMobile()) showHome(); };
 

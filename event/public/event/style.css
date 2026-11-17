@@ -238,3 +238,7 @@ details.paste textarea{margin:10px 0}
   .dh{top:0}
   .foot{padding-bottom:24px}
 }
+/* Viðburður í gangi */
+.ev2.live{border-color:#3fae6a}
+.ev2.live .when{background:#1f4a32;color:#d6f5e2}
+.livel{display:inline-block;background:#2e8b57;color:#fff;font-size:13px;font-weight:800;border-radius:6px;padding:1px 7px;vertical-align:2px}
