@@ -17,11 +17,7 @@
     "run_worker_first": true
   },
   // Búið til sjálfkrafa við fyrstu uppsetningu (wrangler auto-provisioning).
-  "d1_databases": [
-    { "binding": "DB", "database_name": "vidburdir-db" },
-    // Tímabundið: nýi gagnagrunnurinn í Evrópu (flutningur)
-    { "binding": "NEWDB", "database_name": "vidburdir-eu", "database_id": "72e4b32d-0d30-4361-aa15-a402a5841cb7" }
-  ],
+  "d1_databases": [{ "binding": "DB", "database_name": "vidburdir-eu", "database_id": "72e4b32d-0d30-4361-aa15-a402a5841cb7" }], // Vestur-Evrópa (gamli grunnurinn vidburdir-db í Ameríku geymdur sem varaafrit)
   // Plaköt (R2)
   "r2_buckets": [{ "binding": "POSTERS", "bucket_name": "vidburdir-plakot" }],
   "vars": {

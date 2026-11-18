@@ -154,10 +154,10 @@ async function loadAll() {
     fetch(BASE + '/data/places.json').then((r) => r.json()),
     fetch(BASE + '/data/areas.geojson').then((r) => r.json()),
     api('/places'),
+    loadEvents(), // samtímis staðunum, ekki á eftir þeim
   ]);
   GEO = g; AREAS = a;
   setPlaces(pl.places);
-  await loadEvents();
 }
 function setPlaces(list) { PLACES = list; PLACE = {}; list.forEach((p) => (PLACE[p.id] = p)); assignPlaces(); }
 // Bæir á kortinu: langt frá sjást bara stærri bæir („miðstöðvar“), nær allir bæir, svo staðirnir sjálfir.

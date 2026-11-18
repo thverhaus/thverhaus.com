@@ -1,7 +1,6 @@
 import { createDemo, deleteDemo } from "./demo.js";
 import OSM_PLACES from "./osm-places.json";
 import { contactsStep, contactsStats } from "./contacts.js";
-import { dbCopyStep } from "./dbcopy.js";
 const OSM_VERSION = "261114e";
 
 // Viðburðasíðan – netþjónn (Cloudflare Worker + D1 + R2).
@@ -986,7 +985,6 @@ async function route(req, env, url, path) {
   if (path === "/api/verify" && m === "GET") return apiVerify(req, env, url);
   if (path === "/api/claim/verify" && m === "GET") return apiClaimVerify(req, env, url);
   if (path === "/api/logout" && m === "POST") return apiLogout(req, env);
-  if (path === "/api/dbcopy" && m === "POST") { try { return json(await dbCopyStep(env, url.searchParams.get("t"))); } catch (e) { return json({ error: String(e && e.message || e) }, 500); } }
   if (path === "/api/places" && m === "GET") return apiPlaces(req, env);
   if (path === "/api/events" && m === "GET") return apiEvents(req, env, url);
   let mm;
