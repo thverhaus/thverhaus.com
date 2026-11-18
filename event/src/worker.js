@@ -1,6 +1,7 @@
 import { createDemo, deleteDemo } from "./demo.js";
 import OSM_PLACES from "./osm-places.json";
 import { contactsStep, contactsStats } from "./contacts.js";
+import { AGENT_SCHEMA, makeAgents } from "./agents.js";
 const OSM_VERSION = "261114e";
 
 // Viðburðasíðan – netþjónn (Cloudflare Worker + D1 + R2).
@@ -44,6 +45,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS invite_requests (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, status TEXT DEFAULT 'pending', created INTEGER)`,
   `CREATE TABLE IF NOT EXISTS claims (id TEXT PRIMARY KEY, place_id TEXT NOT NULL, user_id TEXT NOT NULL, token TEXT, email TEXT, status TEXT DEFAULT 'sent', created INTEGER, expires INTEGER)`,
   `CREATE TABLE IF NOT EXISTS feedback (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, anon INTEGER DEFAULT 0, text TEXT NOT NULL, seen INTEGER DEFAULT 0, created INTEGER)`,
+  ...AGENT_SCHEMA,
   `CREATE INDEX IF NOT EXISTS ev_date ON events(date)`,
   `CREATE INDEX IF NOT EXISTS ev_place ON events(place_id)`,
   `CREATE INDEX IF NOT EXISTS ev_page ON events(page_id)`,
@@ -62,7 +64,9 @@ async function migrate(env) {
     `ALTER TABLE login_tokens ADD COLUMN invite TEXT`, `ALTER TABLE claims ADD COLUMN note TEXT`,
     // Hátíðir: standa marga daga (end_date), slóð á heimasíðu/Facebook hátíðarinnar (url); viðburður getur verið hluti af hátíð (festival_id).
     `ALTER TABLE events ADD COLUMN end_date TEXT DEFAULT ''`, `ALTER TABLE events ADD COLUMN url TEXT DEFAULT ''`, `ALTER TABLE events ADD COLUMN festival_id TEXT DEFAULT ''`,
-    `ALTER TABLE events ADD COLUMN headline INTEGER DEFAULT 0`]) {
+    `ALTER TABLE events ADD COLUMN headline INTEGER DEFAULT 0`,
+    // Viðburður settur inn af umboðsmanni (síða umboðsmannsins)
+    `ALTER TABLE events ADD COLUMN via_agent TEXT DEFAULT ''`]) {
     try { await env.DB.prepare(sql).run(); } catch {}
   }
 }
@@ -112,6 +116,9 @@ function newCode() {
   for (const b of crypto.getRandomValues(new Uint8Array(6))) s += CODE_ALPHA[b % CODE_ALPHA.length];
   return s;
 }
+
+let AG = null;
+const ag = () => AG || (AG = makeAgents({ json, err, readJson, str, now, newId, newCode }));
 
 function headersBase(extra = {}) {
   return {
@@ -341,9 +348,12 @@ async function pendingCount(env, userId) {
 async function apiMe(req, env, user) {
   if (!user) return json({ user: null });
   const pages = await myPages(env, user.id);
+  const ex = await ag().meExtras(env, user);
   return json({
     user: { id: user.id, email: user.email, name: user.name, owner: !!user.is_owner },
-    pages: pages.map((p) => ({ ...p, code: p.role === "admin" || user.is_owner ? p.code : undefined })),
+    pages: pages.map((p) => ({ ...p, code: p.role === "admin" || user.is_owner ? p.code : undefined })).concat(ex.agentPages),
+    favorites: ex.favorites, agentRequests: ex.agentRequests, bandAgents: ex.bandAgents, agents: ex.agents,
+    agentApply: user.is_owner ? ((await env.DB.prepare(`SELECT COUNT(*) n FROM pages WHERE kind='agent' AND status='pending'`).first()) || {}).n || 0 : 0,
     pending: await pendingCount(env, user.id),
     invitesLeft: user.is_owner ? null : user.invites_left == null ? 5 : user.invites_left,
     rulesOk: !!user.rules_ok,
@@ -398,7 +408,7 @@ async function apiAdminUsers(req, env, user) {
   if (!user.is_owner) return err("Aðeins eigandi.", 403);
   const u = await env.DB.prepare(`SELECT id,email,name,is_owner,invited_by,COALESCE(invites_left,5) invites_left,COALESCE(blocked,0) blocked,created FROM users ORDER BY created`).all();
   const rq = await env.DB.prepare(`SELECT r.id,r.user_id,r.created,u.name,u.email FROM invite_requests r JOIN users u ON u.id=r.user_id WHERE r.status='pending' ORDER BY r.created`).all();
-  return json({ users: u.results, requests: rq.results });
+  return json({ users: u.results, requests: rq.results, memberships: await ag().adminUsersExtra(env) });
 }
 async function apiAdminInviteRequest(req, env, user, id, action) {
   if (!user.is_owner) return err("Aðeins eigandi.", 403);
@@ -569,7 +579,8 @@ async function apiPageMembers(req, env, user, pageId) {
     `SELECT u.id,u.name,u.email,m.role FROM members m JOIN users u ON u.id=m.user_id WHERE m.page_id=? ORDER BY m.role,u.name`
   ).bind(pageId).all();
   const t = await env.DB.prepare(`SELECT p.id,p.name FROM trusts t JOIN pages p ON p.id=t.page_id WHERE t.venue_page_id=?`).bind(pageId).all();
-  return json({ members: r.results, trusts: t.results });
+  const bandAgents = (await env.DB.prepare(`SELECT ap.id,ap.name,a.status FROM agent_links a JOIN pages ap ON ap.id=a.agent_page_id WHERE a.band_page_id=?`).bind(pageId).all()).results;
+  return json({ members: r.results, trusts: t.results, agents: await ag().venueAgents(env, pageId), bandAgents });
 }
 
 async function apiSetRole(req, env, user, pageId) {
@@ -601,7 +612,8 @@ async function apiAdminPages(req, env, user) {
     `SELECT p.*, (SELECT COUNT(*) FROM members m WHERE m.page_id=p.id) n, pl.name place_name, pl.town place_town
      FROM pages p LEFT JOIN places pl ON pl.id=p.place_id ORDER BY p.name`
   ).all();
-  return json({ pages: r.results });
+  const ex = await ag().adminPagesExtra(env);
+  return json({ pages: r.results, members: ex.members, links: ex.links });
 }
 async function apiCreatePage(req, env, user) {
   if (!user.is_owner) return err("Aðeins eigandi.", 403);
@@ -609,7 +621,7 @@ async function apiCreatePage(req, env, user) {
   const name = str(b && b.name, 100);
   const kind = b && b.kind;
   if (!name) return err("Nafn vantar.");
-  if (!["band", "group", "venue"].includes(kind)) return err("Veldu tegund.");
+  if (!["band", "group", "venue", "agent"].includes(kind)) return err("Veldu tegund.");
   let placeId = null;
   if (kind === "venue") {
     placeId = str(b.place_id, 60);
@@ -712,9 +724,11 @@ async function apiEvent(req, env, id) {
 
 async function apiMyEvents(req, env, user) {
   const r = await env.DB.prepare(
-    `SELECT ${EV_COLS} FROM events e JOIN pages p ON p.id=e.page_id JOIN members m ON m.page_id=e.page_id AND m.user_id=?
-     WHERE e.date>=? ORDER BY e.date DESC,e.time LIMIT 500`
-  ).bind(user.id, addDaysISO(todayISO(), -120)).all();
+    `SELECT ${EV_COLS} FROM events e JOIN pages p ON p.id=e.page_id
+     WHERE e.date>=? AND (e.page_id IN (SELECT page_id FROM members WHERE user_id=?)
+       OR e.page_id IN (SELECT a.band_page_id FROM agent_links a JOIN members m ON m.page_id=a.agent_page_id AND m.user_id=? JOIN pages ap ON ap.id=a.agent_page_id AND ap.status='approved' WHERE a.status='approved'))
+     ORDER BY e.date DESC,e.time LIMIT 500`
+  ).bind(addDaysISO(todayISO(), -120), user.id, user.id).all();
   return json({ events: r.results.map(outEvent) });
 }
 
@@ -796,7 +810,8 @@ async function apiCreateEvent(req, env, user) {
   const b = await readJson(req);
   if (!b) return err("Ógild gögn.");
   const pageId = str(b.page_id, 60);
-  if (!(await roleIn(env, user, pageId))) return err("Þú ert ekki í þessari síðu.", 403);
+  const pr = await ag().postRole(env, user, pageId);
+  if (!pr.role) return err("Þú ert ekki í þessari síðu.", 403);
   const page = await env.DB.prepare(`SELECT id,status FROM pages WHERE id=?`).bind(pageId).first();
   if (!page || page.status !== "approved") return err("Síðan hefur ekki verið samþykkt.", 403);
   const place = await resolvePlace(env, b.place_id, req);
@@ -811,7 +826,9 @@ async function apiCreateEvent(req, env, user) {
   let status = "approved";
   if (vp && vp.id !== pageId) {
     const t = await env.DB.prepare(`SELECT 1 FROM trusts WHERE venue_page_id=? AND page_id=?`).bind(vp.id, pageId).first();
-    if (!t) status = "pending";
+    // Umboðsmenn (samþykktir af eiganda) setja beint inn – nema staðurinn hafi hætt að treysta þeim.
+    const viaAgent = pr.agent && !(await ag().agentBlocked(env, vp.id, pr.agent));
+    if (!t && !viaAgent) status = "pending";
   }
 
   const repeat = Math.max(1, Math.min(52, Number(b.repeat_weeks) || 1));
@@ -822,10 +839,10 @@ async function apiCreateEvent(req, env, user) {
     ids.push(id);
     stmts.push(
       env.DB.prepare(
-        `INSERT INTO events (id,place_id,page_id,title,date,end_date,url,festival_id,headline,time,end_time,price,ticket,door,age,age_text,tags,genres,other_label,fam,descr,poster,status,created_by,created,updated)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO events (id,place_id,page_id,title,date,end_date,url,festival_id,headline,time,end_time,price,ticket,door,age,age_text,tags,genres,other_label,fam,descr,poster,status,created_by,created,updated,via_agent)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(id, placeId, pageId, c.title, addDaysISO(c.date, i * 7), c.end_date ? addDaysISO(c.end_date, i * 7) : "", c.url, c.festival_id, c.headline, c.time, c.end_time, c.price, c.ticket, c.door, c.age, c.age_text,
-        c.tags, c.genres, c.other_label, c.fam, c.descr, c.poster, status, user.id, now(), now())
+        c.tags, c.genres, c.other_label, c.fam, c.descr, c.poster, status, user.id, now(), now(), pr.agent || "")
     );
   }
   await env.DB.batch(stmts);
@@ -835,7 +852,7 @@ async function apiCreateEvent(req, env, user) {
 async function eventForEdit(env, user, id) {
   const ev = await env.DB.prepare(`SELECT * FROM events WHERE id=?`).bind(id).first();
   if (!ev) return { error: err("Viðburður fannst ekki.", 404) };
-  if (!user.is_owner && !(await roleIn(env, user, ev.page_id))) return { error: err("Þú mátt ekki breyta þessum viðburði.", 403) };
+  if (!user.is_owner && !(await ag().postRole(env, user, ev.page_id)).role) return { error: err("Þú mátt ekki breyta þessum viðburði.", 403) };
   return { ev };
 }
 
@@ -997,6 +1014,14 @@ async function route(req, env, url, path) {
   if (!user) return err("Þú þarft að skrá þig inn.", 401);
 
   if (path === "/api/me" && m === "POST") return apiSetName(req, env, user);
+  if ((mm = path.match(/^\/api\/favorites\/([\w-]+)$/)) && (m === "POST" || m === "DELETE")) return ag().apiFavorite(req, env, user, mm[1], m === "POST");
+  if (path === "/api/agent/apply" && m === "POST") return ag().apiAgentApply(req, env, user);
+  if ((mm = path.match(/^\/api\/agent\/([\w-]+)\/link$/)) && m === "POST") return ag().apiAgentLink(req, env, user, mm[1]);
+  if ((mm = path.match(/^\/api\/agent\/([\w-]+)\/newband$/)) && m === "POST") return ag().apiAgentNewBand(req, env, user, mm[1]);
+  if ((mm = path.match(/^\/api\/agent-links\/([\w-]+)\/([\w-]+)\/(approve|reject|remove)$/)) && m === "POST") return ag().apiAgentLinkAction(req, env, user, mm[1], mm[2], mm[3]);
+  if ((mm = path.match(/^\/api\/pages\/([\w-]+)\/agent-(block|unblock)$/)) && m === "POST") return ag().apiVenueAgentBlock(req, env, user, mm[1], mm[2] === "block");
+  if ((mm = path.match(/^\/api\/admin\/agents\/([\w-]+)\/(approve|reject)$/)) && m === "POST") return ag().apiAdminAgent(req, env, user, mm[1], mm[2]);
+  if (path === "/api/pages-search" && m === "GET") { const q = "%" + str(url.searchParams.get("q"), 60) + "%"; const k = str(url.searchParams.get("kind"), 20) || "band"; return json({ pages: (await env.DB.prepare(`SELECT id,name,kind FROM pages WHERE kind=? AND name LIKE ? AND id NOT LIKE 'demo-%' ORDER BY name LIMIT 12`).bind(k, q).all()).results }); }
   if (path === "/api/join" && m === "POST") return apiJoin(req, env, user);
   if ((mm = path.match(/^\/api\/pages\/([\w-]+)\/leave$/)) && m === "POST") return apiLeave(req, env, user, mm[1]);
   if ((mm = path.match(/^\/api\/pages\/([\w-]+)\/members$/)) && m === "GET") return apiPageMembers(req, env, user, mm[1]);

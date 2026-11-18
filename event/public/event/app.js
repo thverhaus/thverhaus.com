@@ -59,7 +59,7 @@ const GENL = {
   is: { rokk: 'Rokk', metall: 'Metall', ponk: 'Pönk', popp: 'Popp', hiphop: 'Hip hop', raf: 'Raftónlist', djass: 'Djass', blus: 'Blús', kantri: 'Kántrí', thjodlaga: 'Þjóðlagatónlist', trubador: 'Trúbador', klassik: 'Klassík', kor: 'Kór', abreidur: 'Ábreiður' },
   en: { rokk: 'Rock', metall: 'Metal', ponk: 'Punk', popp: 'Pop', hiphop: 'Hip hop', raf: 'Electronic', djass: 'Jazz', blus: 'Blues', kantri: 'Country', thjodlaga: 'Folk', trubador: 'Singer-songwriter', klassik: 'Classical', kor: 'Choir', abreidur: 'Covers' },
 };
-const KINDS = { band: 'Hljómsveit / listamaður', group: 'Félag / hátíð / skipuleggjandi (kór, leikfélag o.fl.)', venue: 'Staður' };
+const KINDS = { band: 'Hljómsveit / listamaður', group: 'Félag / hátíð / skipuleggjandi (kór, leikfélag o.fl.)', venue: 'Staður (bar, veitingahús, samkomuhús…)', agent: 'Umboðsmaður' };
 const MN_IS = ['janúar', 'febrúar', 'mars', 'apríl', 'maí', 'júní', 'júlí', 'ágúst', 'september', 'október', 'nóvember', 'desember'];
 const DN_IS = ['sunnudagur', 'mánudagur', 'þriðjudagur', 'miðvikudagur', 'fimmtudagur', 'föstudagur', 'laugardagur'];
 const MN_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -974,6 +974,7 @@ const RULES = [
   ['🍺', 'Engar áfengisauglýsingar (t.d. ekkert happy hour eða bjór á tilboði).'],
   ['🕘', 'Haltu viðburðunum þínum réttum. Breyttu eða aflýstu ef eitthvað breytist. Settu inn lokatíma ef hægt er – það er betra að giska (t.d. 23:30) en að sleppa honum.'],
   ['📢', 'Bara viðburðir, engin önnur sala. Það má segja hvar miðar fást og setja hlekk á t.d. tix.is, midix.is eða svid.is.'],
+  ['🤝', 'Umboðsmenn mega setja inn viðburði fyrir böndin sín – en þeir eiga ekki bandið. Bandið getur alltaf losað sig.'],
   ['🚩', 'Sérðu bull? Láttu vita.'],
 ];
 const rulesHtml = () => `<ol class="rules">${RULES.map(([e, t]) => `<li><span>${e}</span><span>${esc(t)}</span></li>`).join('')}</ol>`;
@@ -1025,9 +1026,9 @@ async function loadUsersAdmin() {
   const ids = new Set(r.users.map((u) => u.id));
   const roots = r.users.filter((u) => !u.invited_by || !ids.has(u.invited_by));
   const row = (u, d) => `<div class="urow ${u.blocked ? 'blocked' : ''}" style="margin-left:${Math.min(d, 6) * 18}px">
-      <span>${d ? '↳ ' : ''}${u.blocked ? '🚫 ' : ''}<b>${esc(u.name || u.email)}</b> <span class="role">${u.name ? esc(u.email) : ''}${u.is_owner ? ' · eigandi' : ` · ${u.invites_left} lyklar eftir`}</span></span>
-      ${u.is_owner ? '' : `<span class="row">${u.blocked ? `<button class="btn sm" data-ub="${u.id}" data-a="unblock">Opna</button>` : `<button class="btn sm ghost danger" data-ub="${u.id}" data-a="block">🚫 Loka</button>`}
-      ${(kids[u.id] || []).length ? `<button class="btn sm ghost danger" data-ub="${u.id}" data-a="${u.blocked ? 'unblock-branch' : 'block-branch'}">${u.blocked ? 'Opna alla greinina' : '🚫 Loka á alla greinina'}</button>` : ''}</span>`}</div>`;
+      <span>${d ? '↳ ' : ''}<button class="lnk" data-user="${u.id}">${u.blocked ? '❄️ ' : ''}<b>${esc(u.name || u.email)}</b></button> <span class="role">${u.name ? esc(u.email) : ''}${u.is_owner ? ' · eigandi' : ` · ${u.invites_left} lyklar eftir`}</span></span>
+      ${u.is_owner ? '' : `<span class="row">${u.blocked ? `<button class="btn sm" data-ub="${u.id}" data-a="unblock">Opna</button>` : `<button class="btn sm ghost danger" data-ub="${u.id}" data-a="block">❄️ Frysta</button>`}
+      ${(kids[u.id] || []).length ? `<button class="btn sm ghost danger" data-ub="${u.id}" data-a="${u.blocked ? 'unblock-branch' : 'block-branch'}">${u.blocked ? 'Opna alla greinina' : '❄️ Frysta alla greinina'}</button>` : ''}</span>`}</div>`;
   const tree = (list, d) => list.map((u) => row(u, d) + tree(kids[u.id] || [], d + 1)).join('');
   box.innerHTML = `${r.requests.length ? `<h3>➕ Beiðnir um fleiri boðslykla</h3>${r.requests.map((q) => `<div class="card"><b>${esc(q.name || q.email)}</b> <span class="role">${esc(q.email)}</span>
       <div class="row"><button class="btn sm primary" data-rq="${q.id}" data-a="approve">✓ Gefa 5 í viðbót</button><button class="btn sm ghost" data-rq="${q.id}" data-a="reject">✕ Hafna</button></div></div>`).join('')}` : ''}
@@ -1035,9 +1036,10 @@ async function loadUsersAdmin() {
   box.querySelectorAll('[data-rq]').forEach((b) => (b.onclick = async () => { try { await api(`/admin/invite-requests/${b.dataset.rq}/${b.dataset.a}`, { method: 'POST' }); await loadMe(); loadUsersAdmin(); } catch (e) { toast(e.message, true); } }));
   box.querySelectorAll('[data-ub]').forEach((b) => (b.onclick = async () => {
     const a = b.dataset.a;
-    if (a.startsWith('block') && !confirm(a === 'block-branch' ? 'Loka á þennan notanda OG alla sem hann bauð inn (og þá sem þeir buðu)? Viðburðir þeirra hverfa af síðunni.' : 'Loka á þennan notanda? Viðburðir hans hverfa af síðunni.')) return;
-    try { const x = await api(`/admin/users/${b.dataset.ub}/${a}`, { method: 'POST' }); toast(`${a.startsWith('block') ? '🚫 Lokað' : '✅ Opnað'} (${x.count})`); loadUsersAdmin(); } catch (e) { toast(e.message, true); }
+    if (a.startsWith('block') && !(await confirmAsk(a === 'block-branch' ? 'Frysta þennan notanda OG alla sem hann bauð inn (og þá sem þeir buðu)? Viðburðir þeirra hverfa af síðunni. Engu er eytt.' : 'Frysta þennan notanda? Viðburðir hans hverfa af síðunni. Engu er eytt – þú getur opnað aftur.', 'Já, frysta'))) return;
+    try { const x = await api(`/admin/users/${b.dataset.ub}/${a}`, { method: 'POST' }); toast(`${a.startsWith('block') ? '❄️ Frystur' : '✅ Opnað'} (${x.count})`); await loadAdm(); loadUsersAdmin(); } catch (e) { toast(e.message, true); }
   }));
+  wireUserLinks(box);
 }
 
 async function loadClaims() {
@@ -1055,8 +1057,17 @@ async function loadClaims() {
 /* ---------- Mitt svæði ---------- */
 async function loadMe() {
   try { ME = await api('/me'); } catch (_e) { ME = { user: null }; }
-  const n = ME.user ? ME.pending + (ME.feedbackUnread || 0) + (ME.inviteRequests || 0) + (ME.claimRequests || 0) : 0;
+  const n = ME.user ? ME.pending + adminCount() + (ME.agentRequests || []).length : 0;
   $('mineBadge').textContent = n; $('mineBadge').classList.toggle('hidden', !n);
+}
+const adminCount = () => (ME && ME.user && ME.user.owner ? (ME.feedbackUnread || 0) + (ME.inviteRequests || 0) + (ME.claimRequests || 0) + (ME.agentApply || 0) : 0);
+// „Ertu alveg viss?“ – Já / Nei gluggi. Skilar true ef ýtt er á Já.
+function confirmAsk(html, yes) {
+  return new Promise((res) => {
+    const m = openModal(`<h2>Ertu alveg viss?</h2><div>${html}</div><div class="row" style="margin-top:14px"><button class="btn danger" data-y>${esc(yes || 'Já')}</button><button class="btn ghost" data-n>Nei</button></div>`, { onClose: () => res(false) });
+    m.el.querySelector('[data-y]').onclick = () => { res(true); m.close(); };
+    m.el.querySelector('[data-n]').onclick = () => m.close();
+  });
 }
 function showPublic() { $('publicView').classList.remove('hidden'); $('mineView').classList.add('hidden'); $('dateChips').classList.remove('hidden'); if (map) { map.resize(); if (!F.inView && !F.placeId && !F.sel) fitIceland(); } }
 async function showMine() {
@@ -1110,6 +1121,7 @@ async function renderMine() {
   const [reqs, mine] = await Promise.all([api('/requests'), api('/my-events')]);
   const u = ME.user, pages = ME.pages;
   const venueIds = new Set(pages.filter((p) => p.kind === 'venue').map((p) => p.id));
+  const bandIds = new Set(pages.filter((p) => p.kind === 'band').map((p) => p.id));
   const isAdminSomewhere = u.owner || pages.some((p) => p.role === 'admin');
   const upcoming = mine.events.filter((e) => e.date >= iso(TODAY)).reverse();
   const past = mine.events.filter((e) => e.date < iso(TODAY));
@@ -1117,21 +1129,24 @@ async function renderMine() {
   root.innerHTML = `<div class="dash">
    <div class="row" style="justify-content:space-between"><h1>Mitt svæði</h1><div class="row"><button class="btn" id="backBtn">← Til baka á kortið</button><button class="btn ghost sm" id="logoutBtn">Skrá út</button></div></div>
    <p class="role">Innskráð(ur) sem ${esc(u.email)}</p>
+   ${u.owner ? `<div class="sec"><button class="btn primary big" id="adminBtn">🛠️ Stjórnborð${adminCount() ? ` <span class="badge">${adminCount()}</span>` : ''}</button>
+     <p class="role">Allir staðir, bönd, félög, umboðsmenn og notendur – leit, meðlimir, athugasemdir og beiðnir.</p></div>` : ''}
+
+   ${(ME.agentRequests || []).length ? `<div class="sec"><h2>🔴 Umboðsmenn sem vilja tengjast</h2>${ME.agentRequests.map((a) => `<div class="card"><b>${esc(a.agent_name)}</b> vill vera umboðsmaður <b>${esc(a.band_name)}</b>.
+     <p class="role">Umboðsmaður getur sett inn viðburði fyrir bandið. Hann á ekki bandið, og þið getið alltaf losað ykkur.</p>
+     <div class="row"><button class="btn primary" data-al="${a.agent_page_id}|${a.band_page_id}|approve">✓ Samþykkja</button><button class="btn ghost" data-al="${a.agent_page_id}|${a.band_page_id}|reject">✕ Hafna</button></div></div>`).join('')}</div>` : ''}
 
    ${reqs.requests.length ? `<div class="sec"><h2>🔴 Beiðnir sem bíða (${reqs.requests.length})</h2>${reqs.requests.map(reqCard).join('')}</div>` : ''}
 
    <div class="sec"><button class="btn primary big" id="newEv" ${pages.length ? '' : 'disabled'}>➕ Setja inn viðburð</button>
      ${pages.length ? '' : '<p class="role">Þú þarft fyrst að ganga í síðu (staður, band eða félag) með kóða hér fyrir neðan.</p>'}</div>
 
-   ${u.owner ? `<div class="sec" id="fbOwner"><h2>💬 Athugasemdir frá prófurum</h2><div id="fbList"><p class="role">Hleð…</p></div></div>` : ''}
 
    <div class="sec" id="claimSec"><h2>🏠 Staðurinn minn</h2>
      <form id="claimForm" class="card"><p>Sérðu um bar, veitingahús, félagsheimili eða annan stað? Finndu hann hér. Við sendum staðfestingu á <b>netfangið sem staðurinn birtir</b> – sá sem opnar þann póst fær að stjórna staðnum.</p>
        ${placeFieldHtml('cl', null)}<div class="row" style="margin-top:10px"><button class="btn primary">🏠 Þetta er minn staður</button></div><div id="claimMsg"></div></form></div>
 
-   ${u.owner ? `<div class="sec" id="claimAdmin"><h2>🏠 Beiðnir um staði (ekkert netfang fannst)</h2><div id="claimBox"><p class="role">Hleð…</p></div></div>` : ''}
 
-   ${u.owner ? `<div class="sec"><h2>👥 Notendur og boðslyklar</h2><div id="usersBox"><p class="role">Hleð…</p></div></div>` : ''}
 
    <div class="sec" id="invSec"><h2>🎁 Bjóða einhverjum</h2><div id="invBox"><p class="role">Hleð…</p></div>
      <details class="paste"><summary>📜 Reglurnar</summary>${rulesHtml()}</details></div>
@@ -1147,21 +1162,27 @@ async function renderMine() {
      ${past.length ? `<details><summary class="role" style="cursor:pointer">🗂️ Liðnir viðburðir (${past.length})</summary>${past.map(myEvCard).join('')}</details>` : ''}</div>
 
    <div class="sec"><h2>👥 Síðurnar mínar</h2>
-     ${pages.map((p) => `<div class="card"><div class="row" style="justify-content:space-between"><div><h3>${esc(p.name)}</h3><span class="role">${esc(KINDS[p.kind])} · ${p.role === 'admin' ? 'stjórnandi' : 'meðlimur'}${p.status !== 'approved' ? ' · bíður samþykkis' : ''}</span></div>
+     ${pages.filter((p) => p.kind !== 'agent').map((p) => `<div class="card"><div class="row" style="justify-content:space-between"><div><h3>${esc(p.name)}</h3><span class="role">${esc(KINDS[p.kind])} · ${p.role === 'admin' ? 'stjórnandi' : p.role === 'agent' ? '🤝 þú ert umboðsmaður' : 'meðlimur'}${p.status !== 'approved' ? ' · bíður samþykkis' : ''}</span></div>
         ${p.code ? `<div class="role">Kóði til að bjóða: <span class="code">${esc(p.code)}</span></div>` : ''}</div>
         <div class="row" style="margin-top:8px">${p.role === 'admin' || u.owner ? `<button class="btn sm" data-members="${p.id}">Meðlimir${p.kind === 'venue' ? ' og traust' : ''}</button>` : ''}
         ${p.kind === 'venue' && p.place_id && (p.role === 'admin' || u.owner) ? `<button class="btn sm" data-moveplace="${p.place_id}">📍 Laga staðsetningu</button>` : ''}
-        <button class="btn sm ghost" data-leave="${p.id}">Hætta í síðu</button></div><div data-memlist="${p.id}"></div></div>`).join('') || '<p class="role">Þú ert ekki í neinni síðu enn.</p>'}
+        ${p.role === 'agent' ? '' : `<button class="btn sm ghost" data-leave="${p.id}">Hætta í síðu</button>`}</div>
+        ${(ME.bandAgents || []).filter((a) => a.band_page_id === p.id).map((a) => `<div class="row" style="margin-top:8px"><span class="role">🤝 Umboðsmaður: <b>${esc(a.agent_name)}</b></span>${p.role === 'admin' ? `<button class="btn sm ghost danger" data-al="${a.agent_page_id}|${p.id}|remove" data-ask="Losa ${esc(a.agent_name)} sem umboðsmann ${esc(p.name)}?">Losa umboðsmann</button>` : ''}</div>`).join('')}
+        <div data-memlist="${p.id}"></div></div>`).join('') || '<p class="role">Þú ert ekki í neinni síðu enn.</p>'}
      <form id="joinForm" class="card"><label>Ganga í síðu með kóða</label><div class="row"><input class="inp" name="code" placeholder="t.d. KUSK88" style="max-width:200px" autocomplete="off"><button class="btn primary">Ganga í síðu</button></div><div id="joinMsg"></div></form>
    </div>
+
+   ${u.owner ? `<div class="sec"><h2>⭐ Uppáhalds</h2>${(ME.favorites || []).map((p) => `<div class="card"><div class="row" style="justify-content:space-between"><div><h3>${esc(p.name)}</h3><span class="role">${esc(KINDS[p.kind] || '')} · ${p.n} ${p.n === 1 ? 'meðlimur' : 'meðlimir'}</span></div>
+       <div class="role">Kóði: <span class="code">${esc(p.code)}</span></div></div><div class="row" style="margin-top:8px"><button class="btn sm" data-members="${p.id}">Meðlimir</button><button class="btn sm ghost" data-unfav="${p.id}">☆ Taka úr uppáhalds</button></div><div data-memlist="${p.id}"></div></div>`).join('') || '<p class="role">Engar enn. Settu ⭐ við síður í stjórnborðinu, t.d. staði sem vinir þínir reka.</p>'}</div>` : ''}
+
+   ${agentSecHtml()}
 
    <div class="sec"><h2>🙋 Nafnið þitt</h2><form id="nameForm" class="row"><input class="inp" name="name" value="${esc(u.name || '')}" placeholder="Fullt nafn" style="max-width:320px"><button class="btn">Vista</button></form>
      <p class="role">Sést bara hjá stjórnendum síðna sem þú ert í.</p></div>
 
-   ${isAdminSomewhere ? `<div class="sec"><h2>📍 Staðir</h2><button class="btn" id="addPlace">📍 Skrá nýjan stað</button>
-     <p class="role">Ef staðurinn finnst ekki þegar viðburður er settur inn, t.d. samkomuhús úti í sveit.</p></div>` : ''}
+   ${isAdminSomewhere ? `<div class="sec"><h2>📍 Skemmtistaðir og samkomuhús</h2><button class="btn" id="addPlace">📍 Skrá nýjan skemmtistað eða samkomuhús</button>
+     <p class="role">Ef staðurinn (bar, veitingahús, samkomuhús…) finnst ekki þegar viðburður er settur inn, t.d. félagsheimilið í sveitinni.</p></div>` : ''}
 
-   ${u.owner ? `<div class="sec"><h2>🛠️ Stjórnborð eiganda</h2><div id="ownerBox"><p class="role">Hleð…</p></div></div>` : ''}
   </div>`;
 
   $('backBtn').onclick = showPublic;
@@ -1171,7 +1192,10 @@ async function renderMine() {
     try { await api('/feedback', { method: 'POST', body: { text: f.elements.text.value, anon: f.anon.checked } }); f.reset(); toast('✅ Takk! Athugasemdin er komin til skila.'); if (u.owner) loadFeedback(); }
     catch (e) { toast(e.message, true); }
   };
-  if (u.owner) { loadFeedback(); loadUsersAdmin(); loadClaims(); }
+  const adb = $('adminBtn'); if (adb) adb.onclick = () => renderAdmin('home');
+  wireAgentLinks(root, renderMine);
+  root.querySelectorAll('[data-unfav]').forEach((b) => (b.onclick = async () => { try { await api('/favorites/' + b.dataset.unfav, { method: 'DELETE' }); renderMine(); } catch (e) { toast(e.message, true); } }));
+  wireAgentSec(root);
   const cf = $('claimForm'), cpf = wirePlaceField(cf, 'cl');
   cf.onsubmit = async (ev) => {
     ev.preventDefault();
@@ -1223,7 +1247,6 @@ async function renderMine() {
   root.querySelectorAll('[data-members]').forEach((b) => (b.onclick = () => showMembers(b.dataset.members, venueIds.has(b.dataset.members))));
   wireReqCards(root);
   wireMyEvCards(root, mine.events);
-  if (u.owner) renderOwner();
 }
 
 function reqCard(e) {
@@ -1288,11 +1311,16 @@ async function showMembers(pageId, isVenue) {
     box.innerHTML = `<div style="margin-top:10px">${r.members.map((m) => `<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:6px 0">
        <span>${esc(m.name || m.email)} <span class="role">${m.role === 'admin' ? 'stjórnandi' : 'meðlimur'}</span></span>
        <span class="row"><button class="btn sm" data-r="${m.role === 'admin' ? 'member' : 'admin'}" data-u="${m.id}">${m.role === 'admin' ? 'Gera að meðlim' : 'Gera að stjórnanda'}</button>
-       <button class="btn sm danger" data-r="remove" data-u="${m.id}">Fjarlægja</button></span></div>`).join('')}
+       <button class="btn sm danger" data-r="remove" data-u="${m.id}" data-nm="${esc(m.name || m.email)}">🚪 Henda út</button></span></div>`).join('')}
+     ${isVenue && r.agents && r.agents.length ? `<p class="lbl" style="margin-top:12px">🤝 Umboðsmenn sem setja beint inn hér:</p>${r.agents.map((a) => `<div class="row" style="justify-content:space-between"><span>${esc(a.name)}${a.blocked ? ' <span class="role">· þarf samþykki</span>' : ''}</span>${a.blocked ? `<button class="btn sm" data-ab="${a.id}" data-a="unblock">Treysta aftur</button>` : `<button class="btn sm ghost danger" data-ab="${a.id}" data-a="block">Hætta að treysta</button>`}</div>`).join('')}` : ''}
      ${isVenue ? `<p class="lbl" style="margin-top:12px">🤝 Samþykkt alltaf frá:</p>${r.trusts.map((t) => `<div class="row" style="justify-content:space-between"><span>${esc(t.name)}</span><button class="btn sm" data-untrust="${t.id}">Hætta að treysta</button></div>`).join('') || '<p class="role">Engum enn.</p>'}` : ''}</div>`;
     box.querySelectorAll('[data-r]').forEach((b) => (b.onclick = async () => {
-      if (b.dataset.r === 'remove' && !confirm('Ertu viss?')) return;
+      if (b.dataset.r === 'remove' && !(await confirmAsk('Henda <b>' + esc(b.dataset.nm || '') + '</b> út úr síðunni?', 'Já, henda út'))) return;
       try { await api(`/pages/${pageId}/role`, { method: 'POST', body: { user: b.dataset.u, role: b.dataset.r } }); box.innerHTML = ''; showMembers(pageId, isVenue); } catch (e) { toast(e.message, true); }
+    }));
+    box.querySelectorAll('[data-ab]').forEach((b) => (b.onclick = async () => {
+      if (b.dataset.a === 'block' && !(await confirmAsk('Viðburðir frá þessum umboðsmanni þurfa þá samþykki staðarins – líka þeir sem eru þegar komnir inn og eru framundan.', 'Já, hætta að treysta'))) return;
+      try { await api(`/pages/${pageId}/agent-${b.dataset.a}`, { method: 'POST', body: { agent: b.dataset.ab } }); box.innerHTML = ''; showMembers(pageId, isVenue); } catch (e) { toast(e.message, true); }
     }));
     box.querySelectorAll('[data-untrust]').forEach((b) => (b.onclick = async () => {
       try { await api(`/pages/${pageId}/untrust`, { method: 'POST', body: { page: b.dataset.untrust } }); box.innerHTML = ''; showMembers(pageId, isVenue); } catch (e) { toast(e.message, true); }
@@ -1300,21 +1328,180 @@ async function showMembers(pageId, isVenue) {
   } catch (e) { toast(e.message, true); }
 }
 
+/* ---------- Umboðsmenn (Mitt svæði) ---------- */
+function agentSecHtml() {
+  const list = ME.agents || [];
+  if (!list.length) return `<div class="sec"><details class="paste"><summary>🤝 Ertu umboðsmaður?</summary>
+     <form id="agApply" class="card"><p>Umboðsmenn geta sett inn viðburði fyrir böndin sín, á hvaða stað sem er. Umsjónarmaður síðunnar samþykkir hvern umboðsmann.</p>
+     <label>Nafn umboðsskrifstofunnar (eða þitt nafn)</label><input class="inp" name="name" required maxlength="100">
+     <div class="row" style="margin-top:8px"><button class="btn primary">Sækja um</button></div></form></details></div>`;
+  return `<div class="sec"><h2>🤝 Umboðsmaður</h2>${list.map((a) => `<div class="card"><h3>${esc(a.name)}</h3>
+    ${a.status === 'pending' ? '<p class="role">⏳ Bíður samþykkis umsjónarmanns síðunnar.</p>' : a.status === 'rejected' ? '<p class="err">Umsókninni var hafnað.</p>' : `
+    ${a.bands.map((b) => `<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:6px 0"><span><b>${esc(b.name)}</b> <span class="role">${b.status === 'pending' ? '⏳ bíður samþykkis bandsins' : '✓ tengt'}${b.status === 'approved' && !b.n && b.code ? ` · kóði fyrir bandið: <span class="code">${esc(b.code)}</span>` : ''}</span></span>
+      <button class="btn sm ghost danger" data-al="${a.id}|${b.id}|remove" data-ask="Hætta að vera umboðsmaður ${esc(b.name)}?">Hætta</button></div>`).join('') || '<p class="role">Engin bönd enn.</p>'}
+    <div class="f" style="margin-top:10px"><label>Bæta við bandi sem er á síðunni</label><div class="search" style="max-width:none"><input class="inp" data-agq="${a.id}" autocomplete="off" placeholder="Skrifaðu nafn bandsins"><div class="suggest hidden" data-ags="${a.id}"></div></div>
+      <p class="role">Bandið fær beiðni og samþykkir. Ef enginn er í bandinu á síðunni tengist það strax.</p></div>
+    <form class="row" data-agnew="${a.id}" style="margin-top:6px"><input class="inp" name="name" placeholder="Band sem er ekki á síðunni" style="max-width:280px" maxlength="100"><button class="btn">➕ Búa til síðu fyrir bandið</button></form>
+    <p class="role">Þú átt ekki bandið – þú mátt setja inn viðburði fyrir það. Sendu bandinu kóðann svo það geti gengið í síðuna; það getur alltaf losað sig.</p>`}</div>`).join('')}</div>`;
+}
+function wireAgentSec(root) {
+  const ap = root.querySelector('#agApply');
+  if (ap) ap.onsubmit = async (ev) => { ev.preventDefault(); try { await api('/agent/apply', { method: 'POST', body: { name: ap.elements.name.value } }); toast('✅ Umsóknin er send'); renderMine(); } catch (e) { toast(e.message, true); } };
+  root.querySelectorAll('[data-agq]').forEach((inp) => {
+    const box = root.querySelector(`[data-ags="${inp.dataset.agq}"]`);
+    let t = 0;
+    inp.oninput = () => { clearTimeout(t); t = setTimeout(async () => {
+      if (inp.value.trim().length < 2) { box.classList.add('hidden'); return; }
+      const r = await api('/pages-search?kind=band&q=' + encodeURIComponent(inp.value.trim())).catch(() => ({ pages: [] }));
+      box.innerHTML = r.pages.map((p) => `<button data-pid="${p.id}">${esc(p.name)}</button>`).join('') || '<div class="role" style="padding:8px">Ekkert band fannst – búðu til síðu hér fyrir neðan.</div>';
+      box.classList.remove('hidden');
+      box.querySelectorAll('[data-pid]').forEach((b) => (b.onmousedown = async (ev) => {
+        ev.preventDefault(); box.classList.add('hidden');
+        try { const x = await api(`/agent/${inp.dataset.agq}/link`, { method: 'POST', body: { band: b.dataset.pid } }); toast(x.status === 'approved' ? `✅ Tengt við ${x.band}` : `📨 Beiðni send til ${x.band}`); renderMine(); } catch (e) { toast(e.message, true); }
+      }));
+    }, 250); };
+    inp.onblur = () => setTimeout(() => box.classList.add('hidden'), 150);
+  });
+  root.querySelectorAll('[data-agnew]').forEach((f) => (f.onsubmit = async (ev) => {
+    ev.preventDefault();
+    try { const x = await api(`/agent/${f.dataset.agnew}/newband`, { method: 'POST', body: { name: f.elements.name.value } }); toast('✅ Síðan er komin. Kóði fyrir bandið: ' + x.code); await loadMe(); renderMine(); } catch (e) { toast(e.message, true); }
+  }));
+}
+// Takkar „data-al“ = umboðsmaður|band|aðgerð (samþykkja, hafna, losa)
+function wireAgentLinks(root, after) {
+  root.querySelectorAll('[data-al]').forEach((b) => (b.onclick = async () => {
+    const [ag, band, a] = b.dataset.al.split('|');
+    if (b.dataset.ask && !(await confirmAsk(esc(b.dataset.ask), 'Já'))) return;
+    try { await api(`/agent-links/${ag}/${band}/${a}`, { method: 'POST' }); await loadMe(); after(); } catch (e) { toast(e.message, true); }
+  }));
+}
+
+/* ---------- Stjórnborð eiganda ---------- */
+const ADMIN_TABS = [['home', '📋 Yfirlit'], ['venue', '🏠 Staðir'], ['band', '🎸 Bönd'], ['group', '🎪 Félög og hátíðir'], ['agent', '🤝 Umboðsmenn'], ['users', '👥 Notendur']];
+let ADM = null; // { pages, members, links, users, memberships }
+async function loadAdm() {
+  const [p, u] = await Promise.all([api('/admin/pages'), api('/admin/users')]);
+  ADM = { pages: p.pages.filter((x) => !String(x.id).startsWith('demo-')), members: p.members, links: p.links, users: u.users, requests: u.requests, memberships: u.memberships };
+}
+async function renderAdmin(tab) {
+  const root = $('mineView');
+  root.innerHTML = '<div class="dash"><p class="role">Hleð…</p></div>';
+  await loadMe();
+  try { await loadAdm(); } catch (e) { root.innerHTML = `<div class="dash"><p class="err">${esc(e.message)}</p></div>`; return; }
+  const cnt = (k) => (k === 'users' ? ADM.users.length : k === 'home' ? adminCount() : ADM.pages.filter((p) => p.kind === k).length);
+  const pend = ADM.pages.filter((p) => p.kind === 'agent' && p.status === 'pending').length;
+  root.innerHTML = `<div class="dash">
+   <div class="row" style="justify-content:space-between"><h1>🛠️ Stjórnborð</h1><button class="btn" id="admBack">← Mitt svæði</button></div>
+   <div class="tabs">${ADMIN_TABS.map(([k, t]) => `<button class="chip ${k === tab ? 'on' : ''}" data-tab="${k}">${t}${k === 'agent' && pend ? ` <span class="badge">${pend}</span>` : k === 'home' && cnt(k) ? ` <span class="badge">${cnt(k)}</span>` : k !== 'home' ? ` <small>${cnt(k)}</small>` : ''}</button>`).join('')}</div>
+   <div id="admBody"></div></div>`;
+  $('admBack').onclick = renderMine;
+  root.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => renderAdmin(b.dataset.tab)));
+  const body = $('admBody');
+  if (tab === 'home') {
+    body.innerHTML = `<div class="sec"><h2>💬 Athugasemdir frá prófurum</h2><div id="fbList"><p class="role">Hleð…</p></div></div>
+      <div class="sec"><h2>🏠 Beiðnir um staði (ekkert netfang fannst)</h2><div id="claimBox"><p class="role">Hleð…</p></div></div>
+      <div class="sec"><h2>🛠️ Búa til síðu, netföng og prufugögn</h2><div id="ownerBox"><p class="role">Hleð…</p></div></div>`;
+    loadFeedback(); loadClaims(); renderOwner();
+    return;
+  }
+  if (tab === 'users') {
+    body.innerHTML = `<input class="inp" id="admQ" placeholder="🔎 Leita að nafni eða netfangi" autocomplete="off" style="margin:10px 0">
+      <div id="admHits"></div><div class="sec"><div id="usersBox"><p class="role">Hleð…</p></div></div>`;
+    loadUsersAdmin();
+    const q = $('admQ'), hits = $('admHits');
+    q.oninput = () => {
+      const v = norm(q.value.trim());
+      hits.innerHTML = v.length < 2 ? '' : ADM.users.filter((u) => norm((u.name || '') + ' ' + u.email).includes(v)).map((u) => `<div class="urow"><button class="lnk" data-user="${u.id}">${u.blocked ? '❄️ ' : ''}<b>${esc(u.name || u.email)}</b> <span class="role">${u.name ? esc(u.email) : ''}</span></button></div>`).join('') || '<p class="role">Enginn fannst.</p>';
+      wireUserLinks(hits);
+    };
+    return;
+  }
+  const kind = tab;
+  body.innerHTML = `<input class="inp" id="admQ" placeholder="🔎 Leita í ${esc(ADMIN_TABS.find((x) => x[0] === kind)[1].replace(/^\S+ /, '').toLowerCase())}" autocomplete="off" style="margin:10px 0">
+    ${kind === 'agent' ? '<p class="role">Þú samþykkir hvern umboðsmann. Samþykktir umboðsmenn setja inn viðburði fyrir böndin sín án samþykkis staðar – staður getur hætt að treysta þeim.</p>' : ''}
+    <div id="admList"></div>`;
+  const draw = () => {
+    const v = norm($('admQ').value.trim());
+    const favs = new Set((ME.favorites || []).map((f) => f.id));
+    const list = ADM.pages.filter((p) => p.kind === kind && (!v || norm(p.name + ' ' + (p.place_name || '') + ' ' + (p.place_town || '')).includes(v)))
+      .sort((a, b) => (a.status === 'pending' ? -1 : 0) - (b.status === 'pending' ? -1 : 0) || a.name.localeCompare(b.name, 'is'));
+    $('admList').innerHTML = list.map((p) => `<div class="card admp"><div class="row" style="justify-content:space-between;cursor:pointer" data-open="${p.id}">
+        <span>${favs.has(p.id) ? '⭐ ' : ''}<b>${esc(p.name)}</b> <span class="role">${p.place_name ? esc(p.place_name) + (p.place_town ? ' – ' + esc(p.place_town) : '') + ' · ' : ''}${p.n} ${p.n === 1 ? 'meðlimur' : 'meðlimir'}${p.status === 'pending' ? ' · <b class="chg">⏳ bíður samþykkis</b>' : p.status === 'rejected' ? ' · hafnað' : ''}</span></span>
+        <span class="code">${esc(p.code)}</span></div><div data-detail="${p.id}"></div></div>`).join('') || '<p class="role">Ekkert fannst.</p>';
+    $('admList').querySelectorAll('[data-open]').forEach((r) => (r.onclick = () => togglePageDetail(r.dataset.open, draw)));
+  };
+  $('admQ').oninput = draw;
+  draw();
+}
+function togglePageDetail(id, redraw) {
+  const box = document.querySelector(`[data-detail="${id}"]`);
+  if (box.innerHTML) { box.innerHTML = ''; return; }
+  const p = ADM.pages.find((x) => x.id === id);
+  const mem = ADM.members.filter((m) => m.page_id === id);
+  const isFav = (ME.favorites || []).some((f) => f.id === id);
+  const links = ADM.links.filter((l) => l.agent_page_id === id || l.band_page_id === id);
+  box.innerHTML = `<div style="margin-top:10px">
+    ${p.kind === 'agent' && p.status !== 'approved' ? `<div class="row" style="margin-bottom:8px"><button class="btn primary sm" data-agst="approve">✓ Samþykkja umboðsmann</button>${p.status === 'pending' ? '<button class="btn ghost sm" data-agst="reject">✕ Hafna</button>' : ''}</div>` : ''}
+    <p class="lbl">👥 Meðlimir</p>${mem.map((m) => `<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:6px 0">
+      <button class="lnk" data-user="${m.user_id}">${m.blocked ? '❄️ ' : ''}<b>${esc(m.name || m.email)}</b> <span class="role">${m.role === 'admin' ? 'stjórnandi' : 'meðlimur'}${m.blocked ? ' · frystur' : ''}</span></button>
+      <span class="row"><button class="btn sm" data-r="${m.role === 'admin' ? 'member' : 'admin'}" data-u="${m.user_id}">${m.role === 'admin' ? 'Gera að meðlim' : 'Gera að stjórnanda'}</button>
+      <button class="btn sm ghost danger" data-r="remove" data-u="${m.user_id}" data-nm="${esc(m.name || m.email)}">🚪 Henda út</button>
+      ${m.blocked ? `<button class="btn sm" data-fz="${m.user_id}" data-a="unblock">Opna aðgang</button>` : `<button class="btn sm ghost danger" data-fz="${m.user_id}" data-a="block" data-nm="${esc(m.name || m.email)}">❄️ Frysta</button>`}</span></div>`).join('') || '<p class="role">Enginn meðlimur enn.</p>'}
+    ${links.length ? `<p class="lbl" style="margin-top:10px">🤝 ${p.kind === 'agent' ? 'Bönd' : 'Umboðsmaður'}</p>${links.map((l) => `<div class="row" style="justify-content:space-between"><span>${esc(p.kind === 'agent' ? l.band_name : l.agent_name)} <span class="role">${l.status === 'pending' ? '⏳ bíður samþykkis bandsins' : '✓'}</span></span><button class="btn sm ghost danger" data-al="${l.agent_page_id}|${l.band_page_id}|remove" data-ask="Slíta tengingu ${esc(l.agent_name)} og ${esc(l.band_name)}?">Slíta</button></div>`).join('')}` : ''}
+    <div class="row" style="margin-top:10px"><button class="btn sm" data-fav="${isFav ? 'del' : 'add'}">${isFav ? '☆ Taka úr uppáhalds' : '⭐ Setja í uppáhalds'}</button></div></div>`;
+  const reopen = async () => { await loadAdm(); await loadMe(); redraw(); togglePageDetail(id, redraw); };
+  box.querySelectorAll('[data-r]').forEach((b) => (b.onclick = async () => {
+    if (b.dataset.r === 'remove' && !(await confirmAsk(`Henda <b>${esc(b.dataset.nm)}</b> út úr <b>${esc(p.name)}</b>?`, 'Já, henda út'))) return;
+    try { await api(`/pages/${id}/role`, { method: 'POST', body: { user: b.dataset.u, role: b.dataset.r } }); reopen(); } catch (e) { toast(e.message, true); }
+  }));
+  box.querySelectorAll('[data-fz]').forEach((b) => (b.onclick = async () => {
+    if (b.dataset.a === 'block' && !(await confirmAsk(`Frysta aðgang <b>${esc(b.dataset.nm)}</b>? Hann kemst ekki inn og viðburðir hans hverfa af síðunni. Engu er eytt – þú getur opnað aftur.`, 'Já, frysta'))) return;
+    try { await api(`/admin/users/${b.dataset.fz}/${b.dataset.a}`, { method: 'POST' }); toast(b.dataset.a === 'block' ? '❄️ Frystur' : '✅ Opnað'); reopen(); } catch (e) { toast(e.message, true); }
+  }));
+  box.querySelectorAll('[data-agst]').forEach((b) => (b.onclick = async () => { try { await api(`/admin/agents/${id}/${b.dataset.agst}`, { method: 'POST' }); reopen(); } catch (e) { toast(e.message, true); } }));
+  box.querySelectorAll('[data-fav]').forEach((b) => (b.onclick = async () => { try { await api('/favorites/' + id, { method: b.dataset.fav === 'add' ? 'POST' : 'DELETE' }); reopen(); } catch (e) { toast(e.message, true); } }));
+  wireAgentLinks(box, reopen);
+  wireUserLinks(box);
+}
+function wireUserLinks(root) { root.querySelectorAll('[data-user]').forEach((b) => (b.onclick = (ev) => { ev.stopPropagation(); showUser(b.dataset.user); })); }
+// Notandi: hver bauð honum (alla leið upp), síðurnar hans, frysta/opna.
+async function showUser(id) {
+  if (!ADM) await loadAdm();
+  const U = {}; ADM.users.forEach((u) => (U[u.id] = u));
+  const u = U[id];
+  if (!u) return toast('Notandi fannst ekki', true);
+  const chain = []; for (let x = u; x && x.invited_by && U[x.invited_by] && chain.length < 30; x = U[x.invited_by]) chain.push(U[x.invited_by]);
+  const kids = ADM.users.filter((x) => x.invited_by === id);
+  const pg = ADM.memberships.filter((m) => m.user_id === id);
+  const nm = (x) => esc(x.name || x.email);
+  const m = openModal(`<h2>${u.blocked ? '❄️ ' : ''}${nm(u)}</h2><p class="role">${esc(u.email)}${u.created ? ' · kom inn ' + esc(fmtLong(iso(new Date(u.created)))) : ''}${u.is_owner ? ' · eigandi' : ''}</p>
+    <p class="lbl">🎁 Hver bauð ${esc(u.name ? u.name.split(' ')[0] : 'honum')}?</p>
+    ${chain.length ? `<ol class="chain">${chain.map((c) => `<li><button class="lnk" data-user="${c.id}">${nm(c)}</button>${c.is_owner ? ' <span class="role">(þú)</span>' : ''}</li>`).join('')}</ol>` : `<p class="role">${u.is_owner ? 'Enginn – þetta ert þú.' : 'Var kominn inn áður en boðslyklar komu.'}</p>`}
+    ${kids.length ? `<p class="lbl">➡️ Hefur boðið (${kids.length})</p><p>${kids.map((k) => `<button class="lnk" data-user="${k.id}">${nm(k)}</button>`).join(', ')}</p>` : ''}
+    <p class="lbl">📄 Síður</p>${pg.map((x) => `<div>${esc(x.name)} <span class="role">${esc((KINDS[x.kind] || '').split(' (')[0])} · ${x.role === 'admin' ? 'stjórnandi' : 'meðlimur'}</span></div>`).join('') || '<p class="role">Engar.</p>'}
+    ${u.is_owner ? '' : `<div class="row" style="margin-top:14px">${u.blocked ? '<button class="btn" data-ua="unblock">Opna aðgang</button>' : '<button class="btn ghost danger" data-ua="block">❄️ Frysta aðgang</button>'}
+      ${kids.length ? `<button class="btn ghost danger" data-ua="${u.blocked ? 'unblock-branch' : 'block-branch'}">${u.blocked ? 'Opna alla greinina' : '❄️ Frysta alla greinina'}</button>` : ''}</div>`}`);
+  m.el.querySelectorAll('[data-user]').forEach((b) => (b.onclick = () => { m.close(); showUser(b.dataset.user); }));
+  m.el.querySelectorAll('[data-ua]').forEach((b) => (b.onclick = async () => {
+    const a = b.dataset.ua;
+    if (a.startsWith('block') && !(await confirmAsk(a === 'block-branch' ? `Frysta <b>${nm(u)}</b> OG alla sem hann bauð inn (og þá sem þeir buðu)? Viðburðir þeirra hverfa af síðunni. Engu er eytt.` : `Frysta aðgang <b>${nm(u)}</b>? Viðburðir hans hverfa af síðunni. Engu er eytt – þú getur opnað aftur.`, 'Já, frysta'))) return;
+    try { await api(`/admin/users/${id}/${a}`, { method: 'POST' }); toast(a.startsWith('block') ? '❄️ Frystur' : '✅ Opnað'); m.close(); await loadAdm(); showUser(id); } catch (e) { toast(e.message, true); }
+  }));
+}
+
 async function renderOwner() {
   const box = $('ownerBox');
   const r = await api('/admin/pages');
   box.innerHTML = `<form id="newPage" class="card"><h3>➕ Búa til síðu</h3>
-     <div class="two"><div class="f"><label>Nafn</label><input type="text" name="name" required placeholder="t.d. Pakkhúsið"></div>
-     <div class="f"><label>Tegund</label><select name="kind"><option value="band">${KINDS.band}</option><option value="group">${KINDS.group}</option><option value="venue">${KINDS.venue}</option></select></div></div>
+     <div class="two"><div class="f"><label>Nafn</label><input type="text" name="name" required placeholder="t.d. Hafið"></div>
+     <div class="f"><label>Tegund</label><select name="kind"><option value="band">${KINDS.band}</option><option value="group">${KINDS.group}</option><option value="venue">${KINDS.venue}</option><option value="agent">${KINDS.agent}</option></select></div></div>
      <div class="f hidden" id="npPlace"><label>Staðurinn</label>${placeFieldHtml('np', null)}</div>
      <label class="check"><input type="checkbox" name="join"> Ég verð líka stjórnandi síðunnar</label>
      <div style="margin-top:10px"><button class="btn primary">Búa til</button></div><div id="npMsg"></div></form>
    <div class="card"><h3>📧 Netföng staða</h3><p class="role">Finnur heimasíður sem vantar (Google) og sækir netföngin af þeim. Gert einu sinni – svo staðir geti staðfest sig sjálfir.</p>
      <div id="ctStats" class="role">Hleð…</div><div class="row"><button class="btn primary" id="ctRun">🔎 Finna heimasíður og netföng</button></div></div>
    <div class="card"><h3>🧪 Prufugögn</h3><p class="role">Tilbúnir staðir, bönd og viðburðir um allt land til að sjá síðuna í notkun. Allt prufudót er merkt og hægt að eyða í einu.</p>
-     <div class="row"><button class="btn" id="demoAdd">➕ Setja inn prufuviðburði</button><button class="btn danger" id="demoDel">🗑️ Eyða öllum prufugögnum</button></div></div>
-   <div class="card"><h3>Allar síður (${r.pages.filter((p) => !p.id.startsWith('demo-')).length})</h3>${r.pages.filter((p) => !p.id.startsWith('demo-')).map((p) => `<div class="row" style="justify-content:space-between;border-top:1px solid var(--line);padding:6px 0">
-     <span><b>${esc(p.name)}</b> <span class="role">${esc(KINDS[p.kind])}${p.place_name ? ' · ' + esc(p.place_name) : ''} · ${p.n} meðlimir</span></span><span class="code">${esc(p.code)}</span></div>`).join('')}</div>`;
+     <div class="row"><button class="btn" id="demoAdd">➕ Setja inn prufuviðburði</button><button class="btn danger" id="demoDel">🗑️ Eyða öllum prufugögnum</button></div></div>`;
   const demo = async (method) => {
     if (method === 'DELETE' && !confirm('Eyða öllum prufugögnum? Alvöru gögn haldast.')) return;
     try {
@@ -1355,7 +1542,7 @@ async function renderOwner() {
 /* ---------- Staðareitur (leit: „Staður – Bær“) ---------- */
 function placeFieldHtml(key, placeId) {
   return `<div class="search" style="max-width:none"><input type="hidden" name="${key}_place" value="${esc(placeId || '')}">
-   <input class="inp" data-pq="${key}" autocomplete="off" placeholder="Byrjaðu að skrifa, t.d. Hafið Höfn" value="${esc(placeId && PLACE[placeId] ? placeLabel(PLACE[placeId]) : '')}">
+   <input class="inp" data-pq="${key}" autocomplete="off" placeholder="t.d. barinn þinn eða félagsheimilið í sveitinni" value="${esc(placeId && PLACE[placeId] ? placeLabel(PLACE[placeId]) : '')}">
    <div class="suggest hidden" data-ps="${key}"></div></div>`;
 }
 function wirePlaceField(root, key, onPick) {
@@ -1367,7 +1554,7 @@ function wirePlaceField(root, key, onPick) {
     items.sort((a, b) => { const ra = recent.indexOf(a.id), rb = recent.indexOf(b.id); return (ra < 0 ? 999 : ra) - (rb < 0 ? 999 : rb) || a.name.localeCompare(b.name, 'is'); });
     items = items.slice(0, 10);
     list.innerHTML = items.map((p) => `<button type="button" data-pid="${p.id}">${esc(placeLabel(p))}${recent.includes(p.id) ? ' <small>nýlega notað</small>' : ''}</button>`).join('') ||
-      `<div class="role" style="padding:10px 14px">Finnst ekki. ${ME && ME.user && (ME.user.owner || ME.pages.some((p) => p.role === 'admin')) ? 'Þú getur skráð staðinn undir „📍 Skrá nýjan stað“ á Mitt svæði.' : 'Biddu stjórnanda um að skrá staðinn.'}</div>`;
+      `<div class="role" style="padding:10px 14px">Finnst ekki. ${ME && ME.user && (ME.user.owner || ME.pages.some((p) => p.role === 'admin')) ? 'Þú getur skráð staðinn undir „📍 Skrá nýjan skemmtistað eða samkomuhús“ á Mitt svæði.' : 'Biddu stjórnanda um að skrá staðinn.'}</div>`;
     list.classList.remove('hidden');
     list.querySelectorAll('[data-pid]').forEach((b) => (b.onmousedown = (ev) => {
       ev.preventDefault(); hid.value = b.dataset.pid; inp.value = placeLabel(PLACE[b.dataset.pid]); list.classList.add('hidden');
@@ -1454,7 +1641,7 @@ const AGES = ['', '12', '16', '18', '20', 'fylgd'];
 function openEventForm(ev, isCopy) {
   const editing = !!(ev && ev.id);
   ev = ev || {};
-  const pages = ME.pages.filter((p) => p.status === 'approved');
+  const pages = ME.pages.filter((p) => p.status === 'approved' && p.kind !== 'agent');
   const tags = new Set(ev.tags || []);
   const ageCur = ev.age_text ? '__other' : ev.age || '';
   const m = openModal(`<h2>${editing ? '✏️ Breyta viðburði' : '➕ Setja inn viðburð'}</h2>
@@ -1462,8 +1649,8 @@ function openEventForm(ev, isCopy) {
    ${editing ? '' : `<details class="paste"><summary>📋 Fljótleg leið: líma texta af Facebook</summary>
      <textarea class="inp" id="pasteText" rows="4" placeholder="Afritaðu textann af viðburðinum og límdu hann hér"></textarea>
      <button class="btn primary sm" type="button" id="pasteGo">✨ Fylla út</button> <span class="role" id="pasteMsg"></span></details>`}
-   ${pages.length > 1 && !editing ? `<div class="f"><label>Setja inn sem</label><select name="page_id">${pages.map((p) => `<option value="${p.id}" ${p.id === ev.page_id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>` : `<input type="hidden" name="page_id" value="${esc(ev.page_id || (pages[0] && pages[0].id) || '')}">`}
-   <div class="f"><label>📍 Staður</label>${placeFieldHtml('ev', ev.place_id || (pages.length === 1 && pages[0].kind === 'venue' ? pages[0].place_id : ''))}</div>
+   ${pages.length > 1 && !editing ? `<div class="f"><label>Setja inn sem</label><select name="page_id">${pages.map((p) => `<option value="${p.id}" ${p.id === ev.page_id ? 'selected' : ''}>${esc(p.name)}${p.role === 'agent' ? ' (umboðsmaður)' : ''}</option>`).join('')}</select></div>` : `<input type="hidden" name="page_id" value="${esc(ev.page_id || (pages[0] && pages[0].id) || '')}">`}
+   <div class="f"><label>📍 Hvar er viðburðurinn?</label><p class="role" style="margin:-2px 0 6px">Skemmtistaður, veitingahús, samkomuhús… – skrifaðu nafnið á staðnum.</p>${placeFieldHtml('ev', ev.place_id || (pages.length === 1 && pages[0].kind === 'venue' ? pages[0].place_id : ''))}</div>
    <div class="f"><label>Heiti viðburðar</label><input type="text" name="title" required maxlength="140" value="${esc(ev.title || '')}"></div>
    <div class="f"><label>📅 Dagsetning</label><input type="hidden" name="date" value="${esc(ev.date || '')}"><button type="button" class="btn" id="dateBtn">${ev.date ? esc(fmtLong(ev.date)) : 'Veldu dagsetningu'}</button>
      <div class="note warn hidden" id="pastWarn">⚠️ Þessi dagsetning er liðin. Ýttu aftur á vista ef þú vilt vista samt.</div></div>

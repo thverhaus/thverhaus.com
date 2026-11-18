@@ -303,3 +303,12 @@ details.paste textarea{margin:10px 0}
 .wheres{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
 .wheres .btn{text-align:left;justify-content:flex-start}
 .wheres small{color:var(--muted);font-weight:400;margin-left:6px}
+/* Stjórnborð */
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 6px}
+.tabs small{color:var(--muted);margin-left:4px}
+.lnk{background:none;border:0;padding:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.lnk:hover b{text-decoration:underline}
+.admp{padding:10px 14px}
+.chain{margin:4px 0 10px;padding-left:22px}
+.chain li{margin:2px 0}
+.btn .badge,.chip .badge{display:inline-block;background:#e5484d;color:#fff;border-radius:99px;font-size:12px;padding:0 7px;margin-left:4px}
