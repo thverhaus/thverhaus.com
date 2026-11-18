@@ -1,9 +1,9 @@
 {
   "android": {
-    "versionCode": 15,
-    "versionName": "0.10.5",
+    "versionCode": 16,
+    "versionName": "0.10.6",
     "url": "https://thverhaus.com/mulehead.apk",
-    "sha256": "d4d0024e30e2312607f625cc576fa7e6e56a01a96c93ae26d91e0cdd532c8bd0"
+    "sha256": "69b928a93dbf5957896dd942f52e885f81fa707cf33f232ef13364adf1604516"
   },
   "mac": {
     "version": "1.5.8",
