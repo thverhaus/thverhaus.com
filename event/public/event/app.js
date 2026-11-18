@@ -291,14 +291,14 @@ function visibleEvents() {
 /* ---------- Listinn ---------- */
 const DOW_IS = ['SUN', 'MÁN', 'ÞRI', 'MIÐ', 'FIM', 'FÖS', 'LAU'], DOW_EN = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 // Flokkur með merki, t.d. „🎧 DJ“ (undirflokkur ef hann er til, annars aðalflokkur)
-function catLabel(e) {
+function catLabel(e, plain) {
   const t = e.tags || [];
   const sub = t.find((x) => SUBICON[x] && !/_annad$/.test(x));
   const top = t.find((x) => ICON[x]);
   const k = sub || top;
   if (!k) return '';
   const name = k === 'annad' && e.other_label ? e.other_label : TAGL[lang][k] || k;
-  return (SUBICON[k] || ICON[k]) + ' ' + name;
+  return plain ? name : (SUBICON[k] || ICON[k]) + ' ' + name;
 }
 function evRow(e) {
   const p = PLACE[e.place_id] || {};
@@ -307,7 +307,7 @@ function evRow(e) {
   const dow = today ? L('Í DAG', 'TODAY') : tmrw ? L('Á MORGUN', 'TMRW') : (lang === 'en' ? DOW_EN : DOW_IS)[d.getDay()];
   const fest = e.festival_id && EVENTS.find((x) => x.id === e.festival_id);
   const town = p.cat === 'town' ? p.name : p.town || [p.area, muniName(p.muni)].filter(Boolean).join(', ');
-  const meta = [catLabel(e), fest && '🎪 ' + L('Hluti af ', 'Part of ') + fest.title, '📍 ' + (p.cat === 'town' ? L('Um allan bæ', 'Around town') : p.name), priceStr(e) && '💰 ' + priceStr(e), e.door && '🚪 ' + L('við hurð', 'at the door'), ageStr(e) && '🔞 ' + ageStr(e)].filter(Boolean);
+  const meta = [catLabel(e, true), fest && L('Hluti af ', 'Part of ') + fest.title, p.cat === 'town' ? L('Um allan bæ', 'Around town') : p.name, priceStr(e), e.door && L('við hurð', 'at the door'), ageStr(e)].filter(Boolean);
   const multi = isFest(e) && e.end_date;
   // Dagurinn stendur í fyrirsögn yfir hópnum; hér bara tíminn. Staður, verð og aldur í einni línu
   // (hver hluti brotnar ekki í sundur). Merkin sjást þegar viðburður er opnaður.
@@ -485,21 +485,21 @@ function tuneMap() {
         const sz = scaleSize((map.getLayoutProperty(l.id, 'text-size') != null ? map.getLayoutProperty(l.id, 'text-size') : 16), sl === 'transportation_name' ? 1.35 : 1.2);
         if (sz !== null) map.setLayoutProperty(l.id, 'text-size', sz);
         if (dark) {
-          map.setPaintProperty(l.id, 'text-color', sl === 'transportation_name' ? '#f6e9e2' : '#f2e2dc');
-          map.setPaintProperty(l.id, 'text-halo-color', '#120a0b');
+          map.setPaintProperty(l.id, 'text-color', sl === 'transportation_name' ? '#f0f0f0' : '#ececec');
+          map.setPaintProperty(l.id, 'text-halo-color', '#0d0d0d');
           map.setPaintProperty(l.id, 'text-halo-width', 1.6);
         }
       }
       if (!dark) continue;
       if (l.type === 'line' && sl === 'transportation') {
         const major = /motorway|trunk|primary|secondary/.test(l.id);
-        map.setPaintProperty(l.id, 'line-color', major ? '#c9a48c' : '#9a857e');
+        map.setPaintProperty(l.id, 'line-color', major ? '#a8a8a8' : '#858585');
         map.setPaintProperty(l.id, 'line-opacity', 1);
       }
-      if (l.type === 'fill' && sl === 'building') { map.setPaintProperty(l.id, 'fill-color', '#5a4544'); map.setPaintProperty(l.id, 'fill-opacity', 1); try { map.setPaintProperty(l.id, 'fill-outline-color', '#8c706c'); } catch (_e) {} }
-      if (l.type === 'fill-extrusion' && sl === 'building') map.setPaintProperty(l.id, 'fill-extrusion-color', '#5a4544');
-      if (l.type === 'fill' && sl === 'water') map.setPaintProperty(l.id, 'fill-color', '#16222b');
-      if (l.type === 'background') map.setPaintProperty(l.id, 'background-color', '#2a2021');
+      if (l.type === 'fill' && sl === 'building') { map.setPaintProperty(l.id, 'fill-color', '#474747'); map.setPaintProperty(l.id, 'fill-opacity', 1); try { map.setPaintProperty(l.id, 'fill-outline-color', '#8c706c'); } catch (_e) {} }
+      if (l.type === 'fill-extrusion' && sl === 'building') map.setPaintProperty(l.id, 'fill-extrusion-color', '#474747');
+      if (l.type === 'fill' && sl === 'water') map.setPaintProperty(l.id, 'fill-color', '#141b21');
+      if (l.type === 'background') map.setPaintProperty(l.id, 'background-color', '#222222');
       if (l.type === 'fill' && (sl === 'landcover' || sl === 'landuse' || sl === 'park')) map.setPaintProperty(l.id, 'fill-opacity', 0.35);
     } catch (_e) {}
   }
@@ -701,22 +701,22 @@ async function initMap() {
     map.addLayer({ id: 'muni-line', type: 'line', source: 'areas', minzoom: 7, filter: ['==', ['get', 'kind'], 'muni'], paint: { 'line-color': A, 'line-opacity': 0.35, 'line-width': 1, 'line-dasharray': [2, 2] } });
 
     map.addSource('pl0', { type: 'geojson', data: pointsGeo(false) });
-    map.addLayer({ id: 'pt0', type: 'circle', source: 'pl0', minzoom: 12, paint: { 'circle-radius': 5, 'circle-color': '#8a6a64', 'circle-stroke-width': 1, 'circle-stroke-color': '#1d1214' } });
-    map.addLayer({ id: 'pt0-l', type: 'symbol', source: 'pl0', minzoom: 12, layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': 12, 'text-offset': [0, 1.1], 'text-anchor': 'top' }, paint: { 'text-color': '#b9958d', 'text-halo-color': '#1d1214', 'text-halo-width': 1.2 } });
+    map.addLayer({ id: 'pt0', type: 'circle', source: 'pl0', minzoom: 12, paint: { 'circle-radius': 5, 'circle-color': '#777777', 'circle-stroke-width': 1, 'circle-stroke-color': '#121212' } });
+    map.addLayer({ id: 'pt0-l', type: 'symbol', source: 'pl0', minzoom: 12, layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': 12, 'text-offset': [0, 1.1], 'text-anchor': 'top' }, paint: { 'text-color': '#b9958d', 'text-halo-color': '#121212', 'text-halo-width': 1.2 } });
 
     map.addSource('pl', { type: 'geojson', data: pointsGeo(true), cluster: true, clusterRadius: 42, clusterMaxZoom: 15, clusterProperties: { n: ['+', ['get', 'n']] } });
     map.addLayer({ id: 'cl', minzoom: Z_TOWN, type: 'circle', source: 'pl', filter: ['has', 'point_count'],
       paint: { 'circle-color': A, 'circle-opacity': 0.92, 'circle-stroke-width': 3, 'circle-stroke-color': 'rgba(222,138,90,.35)',
         'circle-radius': ['step', ['get', 'n'], 14, 5, 18, 20, 23, 50, 28] } });
     map.addLayer({ id: 'cl-n', minzoom: Z_TOWN, type: 'symbol', source: 'pl', filter: ['has', 'point_count'],
-      layout: { 'text-field': ['to-string', ['get', 'n']], 'text-font': ['Noto Sans Bold'], 'text-size': 14, 'text-allow-overlap': true }, paint: { 'text-color': '#2a1208' } });
+      layout: { 'text-field': ['to-string', ['get', 'n']], 'text-font': ['Noto Sans Bold'], 'text-size': 14, 'text-allow-overlap': true }, paint: { 'text-color': '#111111' } });
     map.addLayer({ id: 'pt', minzoom: Z_TOWN, type: 'circle', source: 'pl', filter: ['!', ['has', 'point_count']],
-      paint: { 'circle-color': A, 'circle-radius': ['step', ['get', 'n'], 9, 3, 11, 10, 13], 'circle-stroke-width': 2, 'circle-stroke-color': '#1d1214' } });
+      paint: { 'circle-color': A, 'circle-radius': ['step', ['get', 'n'], 9, 3, 11, 10, 13], 'circle-stroke-width': 2, 'circle-stroke-color': '#121212' } });
     map.addLayer({ id: 'pt-n', minzoom: Z_TOWN, type: 'symbol', source: 'pl', filter: ['!', ['has', 'point_count']],
-      layout: { 'text-field': ['to-string', ['get', 'n']], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-allow-overlap': true }, paint: { 'text-color': '#2a1208' } });
+      layout: { 'text-field': ['to-string', ['get', 'n']], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-allow-overlap': true }, paint: { 'text-color': '#111111' } });
     map.addLayer({ id: 'pt-l', minzoom: Z_TOWN, type: 'symbol', source: 'pl', filter: ['!', ['has', 'point_count']],
       layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Bold'], 'text-size': 13, 'text-variable-anchor': ['left', 'right', 'top', 'bottom'], 'text-radial-offset': 1.1, 'text-optional': true },
-      paint: { 'text-color': '#f2e2dc', 'text-halo-color': '#1d1214', 'text-halo-width': 1.5 } });
+      paint: { 'text-color': '#ececec', 'text-halo-color': '#121212', 'text-halo-width': 1.5 } });
 
     // Bæjabólur. Bólur (bara með viðburði) renna saman EINGÖNGU þegar þær lenda hver ofan á annarri;
     // sameinuð bóla fær ekkert bæjarnafn, bara fjölda, og skiptist þegar zoomað er inn.
@@ -727,12 +727,12 @@ async function initMap() {
     // Nöfn fyrst (undir bólunum). Tölurnar í bólunum eru settar fyrst og nöfnin finna sér stað þar sem
     // engin bóla er: hægra megin, vinstra megin, fyrir ofan, neðan eða á ská.
     const size = ['match', ['get', 'tier'], 1, 17, 2, 15, 13];
-    const color = ['case', ['>', ['get', 'n'], 0], '#f6e9e2', '#a88f88'];
+    const color = ['case', ['>', ['get', 'n'], 0], '#f0f0f0', '#8f8f8f'];
     const ANCH = ['left', 'right', 'top', 'bottom', 'bottom-left', 'top-left', 'bottom-right', 'top-right'];
     const nameLayer = (id, minz, maxz, filter, bold) => map.addLayer({ id, type: 'symbol', source: 'nm', minzoom: minz, maxzoom: maxz, filter,
       layout: { 'text-field': ['get', 'name'], 'text-font': [bold ? 'Noto Sans Bold' : 'Noto Sans Regular'], 'text-size': size,
         'text-variable-anchor': ANCH, 'text-radial-offset': ['case', ['>', ['get', 'n'], 0], 1.05, 0.4], 'text-padding': 1, 'symbol-sort-key': ['-', 0, ['get', 'n']] },
-      paint: { 'text-color': color, 'text-halo-color': '#120a0b', 'text-halo-width': 1.8 } });
+      paint: { 'text-color': color, 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.8 } });
     // Zoomað út: bara 8 bæjanöfn.
     // Aðrir bæir (án viðburða, undir 1.000) bara þegar pláss er.
     nameLayer('town-l2', Z_HUB, Z_TOWN, ['==', ['get', 'keep'], 0], false);
@@ -741,12 +741,12 @@ async function initMap() {
     map.addSource('fixn', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({ id: 'fix-l', type: 'symbol', source: 'fixn', maxzoom: Z_TOWN,
       layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Bold'], 'text-size': ['get', 'size'], 'text-anchor': ['get', 'anchor'], 'text-offset': ['get', 'off'], 'text-allow-overlap': true },
-      paint: { 'text-color': color, 'text-halo-color': '#120a0b', 'text-halo-width': 1.8 } });
+      paint: { 'text-color': color, 'text-halo-color': '#0d0d0d', 'text-halo-width': 1.8 } });
     map.addLayer({ id: 'bub-c', type: 'circle', source: 'bub', maxzoom: Z_TOWN,
-      paint: { 'circle-color': A, 'circle-opacity': 0.95, 'circle-stroke-width': 2.5, 'circle-stroke-color': '#1d1214', 'circle-radius': ['get', 'r'] } });
+      paint: { 'circle-color': A, 'circle-opacity': 0.95, 'circle-stroke-width': 2.5, 'circle-stroke-color': '#121212', 'circle-radius': ['get', 'r'] } });
     // Talan sýnist alltaf og tekur pláss frá öðrum nöfnum.
     map.addLayer({ id: 'bub-n', type: 'symbol', source: 'bub', maxzoom: Z_TOWN,
-      layout: { 'text-field': ['to-string', ['get', 'n']], 'text-font': ['Noto Sans Bold'], 'text-size': ['get', 'ts'], 'text-allow-overlap': true, 'text-padding': 6 }, paint: { 'text-color': '#2a1208' } });
+      layout: { 'text-field': ['to-string', ['get', 'n']], 'text-font': ['Noto Sans Bold'], 'text-size': ['get', 'ts'], 'text-allow-overlap': true, 'text-padding': 6 }, paint: { 'text-color': '#111111' } });
 
     if (!wired) { wired = true;
     const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 8 });
@@ -1623,7 +1623,7 @@ async function openPlaceForm(place, done) {
   let ll = place ? [place.lon, place.lat] : null;
   const mm = new maplibregl.Map({ container: 'miniMap', style: map ? map.getStyle() : await pickStyle(), bounds: ll ? undefined : ICELAND, center: ll || undefined, zoom: ll ? 15 : undefined, dragRotate: false, attributionControl: { compact: true } });
   mm.addControl(new maplibregl.NavigationControl({ showCompass: false }));
-  const mk = new maplibregl.Marker({ color: '#de8a5a', draggable: true });
+  const mk = new maplibregl.Marker({ color: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#3ddc97', draggable: true });
   const setLL = (p, fly) => {
     ll = [+p[0].toFixed(6), +p[1].toFixed(6)]; mk.setLngLat(ll).addTo(mm);
     if (fly) mm.flyTo({ center: ll, zoom: 15 });
@@ -1674,7 +1674,7 @@ function flow(html) {
 function closeFlow() { $('mflow').classList.add('hidden'); document.body.classList.remove('m-flow'); }
 function showHome() {
   const sel = new Set();
-  const el = flow(`<div class="mf"><h1>${L('Hvað langar þig að gera?', 'What do you feel like doing?')}</h1>
+  const el = flow(`<div class="mf"><h1><span class="m321">3… 2… 1… <span class="lgo">go!</span></span>${L('Hvað langar þig að gera?', 'What do you feel like doing?')}</h1>
     <p class="role" style="margin:-8px 0 6px">${L('Veldu eitt eða fleira', 'Pick one or more')}</p>
     <div class="tiles">${TOPS.map((t) => `<button class="tile" data-c="${t}"><span class="ic">${ICON[t]}</span>${esc(TAGL[lang][t])}</button>`).join('')}</div>
     <button class="btn primary big hidden" id="mfNext">${L('Áfram', 'Next')} →</button>
