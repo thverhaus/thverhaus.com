@@ -121,6 +121,11 @@ class SettingsStore(context: Context) : PlaylistSettings {
         get() = sp.getString(KEY_LANG, app.mulehead.Lang.EN) ?: app.mulehead.Lang.EN
         set(v) = sp.edit().putString(KEY_LANG, v).apply()
 
+    // Textar: "" = eins og skráin segir, "off" = slökkt, annars tungumál síðasta vals.
+    var subtitlePref: String
+        get() = sp.getString(KEY_SUBS, "") ?: ""
+        set(v) = sp.edit().putString(KEY_SUBS, v).apply()
+
     // Röðun mynda og þátta (sjá data/VodSort.kt).
     var vodSort: String
         get() = sp.getString(KEY_VOD_SORT, "az") ?: "az"
@@ -237,6 +242,7 @@ class SettingsStore(context: Context) : PlaylistSettings {
         private const val KEY_SORT = "settings.sortAZ"
         private const val KEY_LANG = "settings.language"
         private const val KEY_VOD_SORT = "vod.sort"
+        private const val KEY_SUBS = "player.subtitles"
         private const val KEY_NICK = "sync.nickname"
         private const val KEY_ROOM = "sync.room"
         private const val KEY_BROKER = "sync.broker"

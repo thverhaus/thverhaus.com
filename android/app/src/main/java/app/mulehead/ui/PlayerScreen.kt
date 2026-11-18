@@ -75,6 +75,9 @@ import app.mulehead.player.RetryPolicy
 import app.mulehead.player.SniffHolder
 import app.mulehead.player.SniffingDataSourceFactory
 import app.mulehead.player.StreamKind
+import app.mulehead.player.SubOption
+import app.mulehead.player.Subtitles
+import androidx.media3.common.Tracks
 import app.mulehead.sync.SyncManager
 import app.mulehead.sync.SyncRoom
 import app.mulehead.sync.SyncUi
@@ -247,8 +250,23 @@ fun PlayerScreen(
         onDispose { activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
+    // Textar sem fylgja straumnum (Off + hver texti) og sá sem er valinn.
+    val subStore = remember { app.mulehead.data.SettingsStore(ctx) }
+    var subOpts by remember(url) { mutableStateOf<List<SubOption>>(emptyList()) }
+    var subCur by remember(url) { mutableStateOf<SubOption?>(null) }
+
     DisposableEffect(player) {
         val listener = object : Player.Listener {
+            override fun onTracksChanged(tracks: Tracks) {
+                val opts = Subtitles.options(tracks)
+                if (opts.map { it.key to it.label } != subOpts.map { it.key to it.label }) {
+                    // Nýir textar: síðasta val notandans gildir (t.d. Off eða enska).
+                    Subtitles.applyPreference(player, opts, subStore.subtitlePref)
+                }
+                subOpts = opts
+                subCur = Subtitles.current(player, opts)
+            }
+
             override fun onPlaybackStateChanged(playbackState: Int) {
                 when (playbackState) {
                     Player.STATE_BUFFERING ->
@@ -905,6 +923,17 @@ fun PlayerScreen(
                 onTogglePlay = { togglePlay() },
                 onToggleBank = { toggleBank() },
                 onSeekBy = { seekBy(it) },
+                subLabel = subCur?.label,
+                onSubtitles = {
+                    // Einn takki: Off -> fyrsti texti -> næsti … -> Off.
+                    if (subOpts.isNotEmpty()) {
+                        val i = subOpts.indexOf(subCur).coerceAtLeast(0)
+                        val next = subOpts[(i + 1) % subOpts.size]
+                        Subtitles.apply(player, next)
+                        subCur = next
+                        subStore.subtitlePref = next.key
+                    }
+                },
                 onReconnect = { reconnect() },
                 onSync = {
                     overlay = false
@@ -957,6 +986,9 @@ private fun Overlay(
     onTogglePlay: () -> Unit,
     onToggleBank: () -> Unit,
     onSeekBy: (Long) -> Unit,
+    // Textar: null = enginn texti fylgir (takkinn falinn).
+    subLabel: String? = null,
+    onSubtitles: () -> Unit = {},
     onReconnect: () -> Unit,
     onSync: () -> Unit,
     onBack: () -> Unit,
@@ -1060,6 +1092,9 @@ private fun Overlay(
                 TvButton(tr("⏪ 30 s", "⏪ 30 sek")) { onSeekBy(-30_000) }
                 TvButton(tr("30 s ⏩", "30 sek ⏩")) { onSeekBy(30_000) }
                 TvButton(tr("From start", "Frá byrjun")) { onSeekBy(-Long.MAX_VALUE / 2) }
+            }
+            if (subLabel != null) {
+                TvButton(tr("💬 Subtitles: $subLabel", "💬 Texti: $subLabel"), onClick = onSubtitles)
             }
         }
         // Afbrigði rásarinnar (FHD, HD, 50fps …): valið afbrigði er merkt.
