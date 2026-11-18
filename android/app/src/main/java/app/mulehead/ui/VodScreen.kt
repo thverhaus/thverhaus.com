@@ -73,7 +73,10 @@ fun VodScreen(
     onFav: (VodItem) -> Unit = {},
     // Röðun (sjá data/VodSort.kt): A–Z, nýjast, ár eða röð þjónustunnar.
     sort: String = VodSort.AZ,
-    onSort: (String) -> Unit = {}
+    onSort: (String) -> Unit = {},
+    // Faldar möppur (nöfn) og takkinn sem opnar „Fela möppur“.
+    hidden: Set<String> = emptySet(),
+    onHideFolders: () -> Unit = {}
 ) {
     var query by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
@@ -84,11 +87,16 @@ fun VodScreen(
     var wantFocus by remember { mutableStateOf(false) }
 
     val list = state.list
-    val cats = list?.categories.orEmpty()
+    val allCats = list?.categories.orEmpty()
+    // Faldar möppur hverfa úr dálkinum, „Allt“ og leitinni (eins og á Mac).
+    val cats = remember(allCats, hidden) { allCats.filter { it.name !in hidden } }
+    val hiddenIds = remember(allCats, hidden) { allCats.filter { it.name in hidden }.map { it.id }.toSet() }
     val current = category?.takeIf { c -> c == app.mulehead.data.Personal.FAV || cats.any { it.name == c } }
     val favItems = remember(list, favs) { app.mulehead.data.Personal.pick(favs, list?.items.orEmpty()) { it.id } }
     // Allur listinn raðaður einu sinni; leitin heldur röðinni.
-    val sorted = remember(list, sort) { VodSort.sort(list?.items.orEmpty(), sort) }
+    val sorted = remember(list, sort, hiddenIds) {
+        VodSort.sort(list?.items.orEmpty().filter { it.categoryId !in hiddenIds }, sort)
+    }
     val isFav = current == app.mulehead.data.Personal.FAV
     val rows = remember(sorted, current, query, favItems) {
         if (isFav) VodFilter.search(favItems, query, null)
@@ -131,6 +139,7 @@ fun VodScreen(
                 },
                 sort = sort,
                 onSort = { onSort(VodSort.next(sort)) },
+                onHideFolders = onHideFolders,
                 onBack = onBack
             )
             if (searching) {
@@ -187,7 +196,8 @@ private fun VodHeader(
     onSearch: () -> Unit,
     onBack: () -> Unit,
     sort: String = VodSort.AZ,
-    onSort: () -> Unit = {}
+    onSort: () -> Unit = {},
+    onHideFolders: () -> Unit = {}
 ) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 16.dp),
@@ -211,6 +221,8 @@ private fun VodHeader(
         // Myndir/Þættir og „Til baka“ eru í valmyndinni vinstra megin; hér er bara leit og
         // endurnýjun, sem tákn svo hausinn passi við hliðina á flokkunum.
         TvButton(tr("Sort: ${VodSort.label(sort)}", "Röðun: ${VodSort.label(sort)}"), onClick = onSort)
+        Spacer(Modifier.width(10.dp))
+        TvButton(tr("📁 Hide folders", "📁 Fela möppur"), onClick = onHideFolders)
         Spacer(Modifier.width(10.dp))
         TvButton(if (searching) "✕" else "🔍", onClick = onSearch)
         Spacer(Modifier.width(10.dp))

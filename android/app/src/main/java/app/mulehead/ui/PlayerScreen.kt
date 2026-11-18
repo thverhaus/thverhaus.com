@@ -76,6 +76,8 @@ import app.mulehead.player.SniffHolder
 import app.mulehead.player.SniffingDataSourceFactory
 import app.mulehead.player.StreamKind
 import app.mulehead.player.SubOption
+import app.mulehead.player.AudioOption
+import app.mulehead.player.AudioTracks
 import app.mulehead.player.Subtitles
 import androidx.media3.common.Tracks
 import app.mulehead.sync.SyncManager
@@ -254,6 +256,9 @@ fun PlayerScreen(
     val subStore = remember { app.mulehead.data.SettingsStore(ctx) }
     var subOpts by remember(url) { mutableStateOf<List<SubOption>>(emptyList()) }
     var subCur by remember(url) { mutableStateOf<SubOption?>(null) }
+    // Hljóðrásir (fleiri en ein = takkinn birtist).
+    var audOpts by remember(url) { mutableStateOf<List<AudioOption>>(emptyList()) }
+    var audCur by remember(url) { mutableStateOf<AudioOption?>(null) }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -265,6 +270,12 @@ fun PlayerScreen(
                 }
                 subOpts = opts
                 subCur = Subtitles.current(player, opts)
+                val aud = AudioTracks.options(tracks)
+                if (aud.map { it.key to it.label } != audOpts.map { it.key to it.label }) {
+                    AudioTracks.applyPreference(player, aud, subStore.audioPref)
+                }
+                audOpts = aud
+                audCur = AudioTracks.current(aud)
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -924,6 +935,16 @@ fun PlayerScreen(
                 onToggleBank = { toggleBank() },
                 onSeekBy = { seekBy(it) },
                 subLabel = subCur?.label,
+                audioLabel = if (audOpts.size > 1) audCur?.label else null,
+                onAudio = {
+                    if (audOpts.size > 1) {
+                        val i = audOpts.indexOf(audCur).coerceAtLeast(0)
+                        val next = audOpts[(i + 1) % audOpts.size]
+                        AudioTracks.apply(player, next)
+                        audCur = next
+                        subStore.audioPref = next.key
+                    }
+                },
                 onSubtitles = {
                     // Einn takki: Off -> fyrsti texti -> næsti … -> Off.
                     if (subOpts.isNotEmpty()) {
@@ -989,6 +1010,9 @@ private fun Overlay(
     // Textar: null = enginn texti fylgir (takkinn falinn).
     subLabel: String? = null,
     onSubtitles: () -> Unit = {},
+    // Hljóð: null = aðeins ein hljóðrás (takkinn falinn).
+    audioLabel: String? = null,
+    onAudio: () -> Unit = {},
     onReconnect: () -> Unit,
     onSync: () -> Unit,
     onBack: () -> Unit,
@@ -1092,6 +1116,9 @@ private fun Overlay(
                 TvButton(tr("⏪ 30 s", "⏪ 30 sek")) { onSeekBy(-30_000) }
                 TvButton(tr("30 s ⏩", "30 sek ⏩")) { onSeekBy(30_000) }
                 TvButton(tr("From start", "Frá byrjun")) { onSeekBy(-Long.MAX_VALUE / 2) }
+            }
+            if (audioLabel != null) {
+                TvButton(tr("🔊 Audio: $audioLabel", "🔊 Hljóð: $audioLabel"), onClick = onAudio)
             }
             if (subLabel != null) {
                 TvButton(tr("💬 Subtitles: $subLabel", "💬 Texti: $subLabel"), onClick = onSubtitles)

@@ -148,6 +148,10 @@ fun MuleheadApp() {
     // Myndir/Þættir: flokkur og síðasta atriði lifa af spilarann.
     var vodCategory by rememberSaveable { mutableStateOf<String?>(null) }
     var vodSort by remember { mutableStateOf(settings.vodSort) }
+    // Faldar möppur í myndum og þáttum, og hvort „Fela möppur“ fyrir þær er opið.
+    var vodHiddenMovies by remember { mutableStateOf(settings.vodHidden(true)) }
+    var vodHiddenSeries by remember { mutableStateOf(settings.vodHidden(false)) }
+    var vodHideOpen by remember { mutableStateOf(false) }
     var vodFocusId by rememberSaveable { mutableStateOf<String?>(null) }
     var drawerFocused by remember { mutableStateOf(false) }
     var confirmExit by remember { mutableStateOf(false) }
@@ -336,6 +340,23 @@ fun MuleheadApp() {
                 }
             },
             onCancel = if (pl != null) ({ editing = false }) else null
+        )
+        return
+    }
+
+    if (vodHideOpen) {
+        val movies = vodState.kind == VodKind.MOVIES
+        val hiddenNow = if (movies) vodHiddenMovies else vodHiddenSeries
+        val setHidden = { v: Set<String> ->
+            if (movies) vodHiddenMovies = v else vodHiddenSeries = v
+            settings.setVodHidden(movies, v)
+        }
+        HiddenGroupsScreen(
+            groups = vodState.list?.categories.orEmpty().map { app.mulehead.data.ChannelGroup(it.name, it.count) },
+            hidden = hiddenNow,
+            onToggle = { g -> setHidden(if (g in hiddenNow) hiddenNow - g else hiddenNow + g) },
+            onShowAll = { setHidden(emptySet()) },
+            onBack = { vodHideOpen = false }
         )
         return
     }
@@ -547,7 +568,9 @@ fun MuleheadApp() {
                 onSort = { mode ->
                     vodSort = mode
                     settings.vodSort = mode
-                }
+                },
+                hidden = if (vodState.kind == VodKind.MOVIES) vodHiddenMovies else vodHiddenSeries,
+                onHideFolders = { vodHideOpen = true }
             )
                 Section.SEARCH -> SearchScreen(
                     state = state,

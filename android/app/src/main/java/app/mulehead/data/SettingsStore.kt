@@ -126,6 +126,11 @@ class SettingsStore(context: Context) : PlaylistSettings {
         get() = sp.getString(KEY_SUBS, "") ?: ""
         set(v) = sp.edit().putString(KEY_SUBS, v).apply()
 
+    // Hljóð: "" = eins og skráin segir, annars tungumál/lykill síðasta vals.
+    var audioPref: String
+        get() = sp.getString(KEY_AUDIO, "") ?: ""
+        set(v) = sp.edit().putString(KEY_AUDIO, v).apply()
+
     // Röðun mynda og þátta (sjá data/VodSort.kt).
     var vodSort: String
         get() = sp.getString(KEY_VOD_SORT, "az") ?: "az"
@@ -163,6 +168,12 @@ class SettingsStore(context: Context) : PlaylistSettings {
     fun clearPlaylist() {
         playlist = null
     }
+
+    // Faldar möppur í myndum og þáttum (aðskilið fyrir hvort), eitt nafn í línu.
+    fun vodHidden(movies: Boolean): Set<String> =
+        lines(if (movies) KEY_VOD_HIDDEN_MOVIES else KEY_VOD_HIDDEN_SERIES).toSet()
+    fun setVodHidden(movies: Boolean, v: Set<String>) =
+        putLines(if (movies) KEY_VOD_HIDDEN_MOVIES else KEY_VOD_HIDDEN_SERIES, v.sorted())
 
     // Faldar möppur, eitt nafn í línu (tómt = allar sýnilegar).
     override var hiddenGroups: Set<String>
@@ -243,6 +254,9 @@ class SettingsStore(context: Context) : PlaylistSettings {
         private const val KEY_LANG = "settings.language"
         private const val KEY_VOD_SORT = "vod.sort"
         private const val KEY_SUBS = "player.subtitles"
+        private const val KEY_AUDIO = "player.audio"
+        private const val KEY_VOD_HIDDEN_MOVIES = "vod.hidden.movies"
+        private const val KEY_VOD_HIDDEN_SERIES = "vod.hidden.series"
         private const val KEY_NICK = "sync.nickname"
         private const val KEY_ROOM = "sync.room"
         private const val KEY_BROKER = "sync.broker"
