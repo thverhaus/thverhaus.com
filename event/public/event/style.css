@@ -298,3 +298,8 @@ details.paste textarea{margin:10px 0}
 .logo{font-size:26px;letter-spacing:-.02em;white-space:nowrap}
 .logo .lgo,.m321 .lgo{color:var(--accent)}
 .m321{display:block;font-size:1.15em;margin-bottom:4px}
+/* Sími: leit að bæ í „Hvar?“ */
+#whereQ{width:100%;margin:6px 0 8px}
+.wheres{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.wheres .btn{text-align:left;justify-content:flex-start}
+.wheres small{color:var(--muted);font-weight:400;margin-left:6px}
